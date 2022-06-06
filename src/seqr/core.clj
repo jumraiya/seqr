@@ -5,14 +5,15 @@
    [seqr.sc :as sc]
    [seqr.connections :as conn]))
 
+(conn/connect! "localhost" 57110 :sc)
+
 (comment
-  (conn/connect! "localhost" 57110 :sc)
   (player/ui)
   (player/stop-player)
   (player/is-running?)
 
   (do
-    (player/start-player :bpm 20)
+    (player/start-player :bpm 10)
     (player/add-clip
      :test
      (cl/clip

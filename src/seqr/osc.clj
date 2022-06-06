@@ -49,7 +49,8 @@
     java.lang.Integer (push-int msg val)
     java.lang.Double (push-float msg val)
     java.lang.Float (push-float msg val)
-    java.lang.String (push-string msg val)))
+    java.lang.String (push-string msg val)
+    clojure.lang.Keyword (push-string msg (name val))))
 
 (defn osc-msg [^String url]
   {:url url

@@ -282,7 +282,7 @@
         start-stop (proxy [AbstractAction] []
                      (actionPerformed [^ActionEvent e]
                        (toggle-player)
-                       (swap! tui-state update :in-player (fn [l] []))))
+                       (swap! tui-state assoc :in-player [])))
         highlighter (DefaultHighlighter$DefaultHighlightPainter. Color/YELLOW)]
 
     (update-clip-data group-titles clips)
@@ -301,33 +301,42 @@
                  (when-let [counter (get-in @state-ref [new :point])]
                    (add-watch counter :player-tui-point
                               (fn [k s o n]
-                                (let [clip-cells (map #(get-in @tui-state [:clip-cells %])
-                                                      (:in-player @tui-state))
-                                      _ (doseq [c clip-cells] (.blink c true))
-                                      div (:clip-div @tui-state 4)
-                                      player-div (get-in @state-ref [new :div] 4)
-                                      [bar note] (helper/get-pos n div :player-div player-div)
-                                      point (:clip-point @tui-state 1)
-                                      last-action (some
-                                                   (fn [p]
-                                                     (let [pos (helper/get-pos p div :player-div player-div)
-                                                           offsets (get-in @tui-state (concat [:clip-positions] pos))]
-                                                       (if (not (empty? offsets))
-                                                         (conj offsets (second pos)))))
-                                                   (if (= n 1)
-                                                     (range (dec point) n -1)
-                                                     (range (dec n) 0 -1)))]
-                                  (when-let [[start end] (get-in @tui-state [:clip-positions bar note])]
-                                    (doto (.getStyledDocument editor)
-                                      (.setCharacterAttributes start (- end start) active-action true))
-
-                                    (when-let [[start end note] last-action]
+                                (try
+                                  (let [clip-cells (map #(get-in @tui-state [:clip-cells %])
+                                                        (:in-player @tui-state))
+                                        _ (doseq [c clip-cells] (.blink c true))
+                                        div (:clip-div @tui-state 4)
+                                        player-div (get-in state [new :div] 4)
+                                        [bar note] (helper/get-pos n div :player-div player-div)
+                                        point (:clip-point @tui-state 1)
+                                        ms-period (:ms-period (sched/get-job-info new))
+                                      ;; last-action (some
+                                      ;;              (fn [p]
+                                      ;;                (let [pos (helper/get-pos p div :player-div player-div)
+                                      ;;                      offsets (get-in @tui-state (concat [:clip-positions] pos))]
+                                      ;;                  (if (not (empty? offsets))
+                                      ;;                    (conj offsets (second pos)))))
+                                      ;;              (if (= n 1)
+                                      ;;                (range (dec point) n -1)
+                                      ;;                (range (dec n) 0 -1)))
+                                        ]
+                                    (when-let [[start end] (get-in @tui-state [:clip-positions bar note])]
                                       (doto (.getStyledDocument editor)
-                                        (.setCharacterAttributes start (- end start) (nth action-styles note) true))))
-                                  (sched/schedule-task
-                                   #(doseq [c clip-cells]
-                                      (.blink c false))
-                                   100))
+                                        (.setCharacterAttributes start (- end start) active-action true))
+                                      (sched/schedule-task
+                                       #(.setCharacterAttributes (.getStyledDocument editor) start (- end start) (nth action-styles note) true)
+                                       ms-period)
+
+                                    ;; (when-let [[start end note] last-action]
+                                    ;;   (doto (.getStyledDocument editor)
+                                    ;;     (.setCharacterAttributes start (- end start) (nth action-styles note) true)))
+                                      )
+                                    (sched/schedule-task
+                                     #(doseq [c clip-cells]
+                                        (.blink c false))
+                                     ms-period))
+                                  (catch Exception e
+                                    (prn "Error" e)))
                                 (.setText player-point (str n)))))))
     (swap! tui-state assoc :selected [0 0])
     (.grabFocus editor)

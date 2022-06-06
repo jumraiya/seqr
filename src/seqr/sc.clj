@@ -7,8 +7,12 @@
 
 (defn sc-note [{:keys [action synth] :as data}]
   (let [freq (mu/note->freq action)
-        data (reduce dissoc data [:action :synth])
-        params {:action action
-                :synth synth
-                :args (vec (flatten (into [] (assoc data "freq" freq))))}]
+        args (vec (flatten
+                   (into []
+                         (assoc
+                          (reduce dissoc data
+                                  [:action :synth :node-id :add-action :target]) "freq" freq))))
+        params (merge data {:action action
+                            :synth synth
+                            :args args})]
     params))

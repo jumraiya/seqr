@@ -43,4 +43,4 @@
 
 (defn calc-period [bpm div]
   "Given a bpm, division and size of a sequencer, calculate period in ms"
-  (/ 60000000 bpm div))
+  (/ 60000 bpm div))
