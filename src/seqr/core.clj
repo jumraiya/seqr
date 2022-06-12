@@ -3,7 +3,8 @@
    [seqr.player :as player]
    [seqr.clip :as cl]
    [seqr.sc :as sc]
-   [seqr.connections :as conn]))
+   [seqr.connections :as conn]
+   [seqr.midi :as midi]))
 
 (conn/connect! "localhost" 57110 :sc)
 
@@ -12,6 +13,8 @@
   (player/stop-player)
   (player/is-running?)
 
+  (midi/start-recording)
+  (midi/stop-recording)
   (do
     (player/start-player :bpm 10)
     (player/add-clip

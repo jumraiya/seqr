@@ -1,7 +1,9 @@
 (ns seqr.clip
   (:use [clojure.string :refer [replace join]]
         [clojure.data :refer [diff]]
-        [seqr.helper :refer [get-pos get-point]]))
+        [seqr.helper :refer [get-pos get-point]]
+        [seqr.midi :as midi]
+        [seqr.sc :as sc]))
 
 (def t-word ::word) ;; [0-9A-Za-z]+
 
@@ -243,7 +245,8 @@
                t-brace-close (parse-clip text clip)
                t-bracket-open (add-action token text clip true)
                t-word (add-action token text clip false)
-               t-rest (add-rest token text clip))
+               t-rest (add-rest token text clip)
+               t-eof clip)
         get-fn #(condp = (type %)
                   java.lang.String (with-meta
                                      (-> % symbol find-var var-get)
@@ -272,4 +275,28 @@
         clip-size (+ clip-size (* step note))]
     clip-size))
 
+(defn midi-interpreter [clip]
+  (let [{:keys [name ns]} (meta (:eval clip))
+        e (str ns "/" name)
+        midi-fn (condp = e
+                  "seqr.sc/note" seqr.sc/midi->note
+                  false)]
+    midi-fn))
 
+
+(defn build-from-midi [bpm {:keys [div] :as clip}]
+  (let [buf (midi/get-quantized-buffer bpm div)
+        midi-fn (midi-interpreter clip)
+        clip (reduce dissoc clip (filter number? (keys clip)))
+        clip (reduce
+              (fn [clip [p msgs]]
+                (let [actions (vec (filter (comp not empty?) (map midi-fn msgs)))]
+                  (if (not (empty? actions))
+                    (assoc-in clip (get-pos p div) actions)
+                    clip)))
+              clip buf)
+        max-bar (apply max (filter number? (keys clip)))
+        max-note (apply max (keys (get clip max-bar)))
+        point (get-point max-bar max-note div)]
+    (assoc clip :point (inc point))
+    ))

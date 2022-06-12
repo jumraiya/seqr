@@ -1,7 +1,9 @@
 (ns seqr.tui
   (:require [seqr.scheduler :as sched]
             [seqr.helper :as helper]
-            [seqr.clip :as clip])
+            [seqr.clip :as clip]
+            [seqr.midi :as midi]
+            [seqr.connections :as conn])
   (:import (javax.swing JTextPane JFrame JTextField JScrollPane JLabel JTable JPanel BoxLayout AbstractAction KeyStroke JComponent BorderFactory)
            (javax.swing.text DefaultHighlighter$DefaultHighlightPainter StyleContext$NamedStyle StyleConstants)
            (javax.swing.border LineBorder)
@@ -15,6 +17,12 @@
 
 ;; :clips {:group-1 {:clip-1 {} :clip-2 {}}}
 (defonce ^:private tui-state (atom {:selected [0 0] :clips {} :editing-clip nil :clip-selected {} :group-selected 0}))
+
+(defn find-clip [name]
+  (some (fn [[_ m]]
+          (if (contains? m name)
+            (get m name)))
+        (:clips @tui-state)))
 
 (defn clip-table-model [num]
   (proxy [AbstractTableModel] []
@@ -192,7 +200,7 @@
                         (StyleConstants/setBold false)
                         (StyleConstants/setBackground Color/BLACK)
                         (StyleConstants/setForeground Color/GREEN))
-        [player-size player-div player-bpm player-point] (repeatedly 4 #(doto (JTextField. 4) (.setEditable false)))
+        [player-size player-div player-bpm player-point recording] (repeatedly 5 #(doto (JTextField. 4) (.setEditable false)))
         player-bar (doto (JPanel. (FlowLayout. FlowLayout/LEFT 10 10))
                      (.add (JLabel. "Size"))
                      (.add player-size)
@@ -201,7 +209,9 @@
                      (.add (JLabel. "BPM"))
                      (.add player-bpm)
                      (.add (JLabel. "Point"))
-                     (.add player-point))
+                     (.add player-point)
+                     (.add (JLabel. "Recording?"))
+                     (.add recording))
         pane (JScrollPane. editor)
         colors (repeatedly 8 rand-color)
         group-titles (map #(doto (JLabel.)
@@ -309,28 +319,15 @@
                                         player-div (get-in state [new :div] 4)
                                         [bar note] (helper/get-pos n div :player-div player-div)
                                         point (:clip-point @tui-state 1)
-                                        ms-period (:ms-period (sched/get-job-info new))
-                                      ;; last-action (some
-                                      ;;              (fn [p]
-                                      ;;                (let [pos (helper/get-pos p div :player-div player-div)
-                                      ;;                      offsets (get-in @tui-state (concat [:clip-positions] pos))]
-                                      ;;                  (if (not (empty? offsets))
-                                      ;;                    (conj offsets (second pos)))))
-                                      ;;              (if (= n 1)
-                                      ;;                (range (dec point) n -1)
-                                      ;;                (range (dec n) 0 -1)))
-                                        ]
+                                        ms-period (:ms-period (sched/get-job-info new))]
+
                                     (when-let [[start end] (get-in @tui-state [:clip-positions bar note])]
                                       (doto (.getStyledDocument editor)
                                         (.setCharacterAttributes start (- end start) active-action true))
                                       (sched/schedule-task
                                        #(.setCharacterAttributes (.getStyledDocument editor) start (- end start) (nth action-styles note) true)
-                                       ms-period)
+                                       ms-period))
 
-                                    ;; (when-let [[start end note] last-action]
-                                    ;;   (doto (.getStyledDocument editor)
-                                    ;;     (.setCharacterAttributes start (- end start) (nth action-styles note) true)))
-                                      )
                                     (sched/schedule-task
                                      #(doseq [c clip-cells]
                                         (.blink c false))
@@ -338,6 +335,26 @@
                                   (catch Exception e
                                     (prn "Error" e)))
                                 (.setText player-point (str n)))))))
+    (add-watch midi/midi-buffer
+               :midi-handler
+               (fn [key state old new]
+                 (try
+                   (let [{:keys [outs args eval] :as cl} (or (find-clip (:editing-clip @tui-state))
+                                                             (clip/parse-clip (.getText editor)))
+                         [_ msg] (last new)
+                         f (clip/midi-interpreter cl)]
+                     (when (and f (-> outs empty? not) msg)
+                       (let [action (f msg)]
+                         (when (contains? action :action)
+                             (doseq [[dest out-fn] outs]
+                               (conn/send! dest
+                                           (-> action
+                                               (merge args)
+                                               eval
+                                               out-fn)))))))
+                   (catch Exception e
+                     (prn e)))))
+    
     (swap! tui-state assoc :selected [0 0])
     (.grabFocus editor)
 
@@ -374,7 +391,9 @@
 
     (doto (.getInputMap editor JComponent/WHEN_FOCUSED)
       (.put (KeyStroke/getKeyStroke "control S") "save-clip")
-      (.put (KeyStroke/getKeyStroke "control A") "add-clip"))
+      (.put (KeyStroke/getKeyStroke "control A") "add-clip")
+      (.put (KeyStroke/getKeyStroke "control R") "toggle-recording")
+      (.put (KeyStroke/getKeyStroke "control Y") "paste-recording"))
 
     (doto (.getActionMap editor)
       (.put "save-clip"
@@ -386,7 +405,25 @@
             (proxy [AbstractAction] []
               (actionPerformed [^ActionEvent e]
                 (save-clip editor add-player-clip true)
-                (update-clip-data group-titles clips)))))
+                (update-clip-data group-titles clips))))
+      (.put "toggle-recording"
+            (proxy [AbstractAction] []
+              (actionPerformed [^ActionEvent e]
+                (let [v (not (:recording? @tui-state false))]
+                  (midi/toggle-recording v)
+                  (swap! tui-state assoc :recording? v)
+                  (.setText recording (str v))))))
+      (.put "paste-recording"
+            (proxy [AbstractAction] []
+              (actionPerformed [^ActionEvent e]
+                (let [bpm (.getText player-bpm)
+                      cl (clip/build-from-midi
+                          (if (not (empty? bpm))
+                            (Long/parseLong bpm)
+                            80)
+                          (clip/parse-clip (.getText editor)))]
+                  (.setText editor (second (clip/as-str cl)))
+                  (save-clip editor add-player-clip false))))))
 
     (doto pane
       (.setPreferredSize (Dimension. 800 500)))
