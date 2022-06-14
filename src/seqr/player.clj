@@ -112,33 +112,36 @@
   ([name]
    (rm-clip name @player))
   ([name player-id]
-   (swap!
-    player-states
-    update player-id
-    (fn [{:keys [clips buffer] :as state}]
-      (let [new-clips (dissoc clips name)
-            player-div (apply helper/lcmv (map #(:div (second %)) new-clips))
-            player-size (apply max (map #(clip/calc-size (second %) player-div) new-clips))
-            new-state {:clips new-clips
-                       :buffer (reduce (fn [b p]
-                                         (update b p dissoc name))
-                                       buffer (keys buffer))
-                       :div player-div
-                       :size player-size}]
-        (merge state new-state))))))
+   (when (is-running? player-id)
+       (swap!
+        player-states
+        update player-id
+        (fn [{:keys [clips buffer] :as state}]
+          (let [new-clips (dissoc clips name)
+                player-div (apply helper/lcmv (map #(:div (second %)) new-clips))
+                player-size (apply max (map #(clip/calc-size (second %) player-div) new-clips))
+                new-state {:clips new-clips
+                           :buffer (reduce (fn [b p]
+                                             (update b p dissoc name))
+                                           buffer (keys buffer))
+                           :div player-div
+                           :size player-size}]
+            (merge state new-state)))))))
 
 (defn play [player-id]
   (try
     (when-let [state (get @player-states player-id)]
-     (let [{:keys [point size]} state]
-       (doseq [[_ conns] (get-in state [:buffer @point])]
-         (doseq [[dest messages] conns]
-           (doseq [m messages]
-             (conn/send! dest m))))
-       (dosync
-        (if (>= @point size)
-          (ref-set point 1)
-          (commute point inc)))))
+      (let [{:keys [point size div]} state]
+        (doseq [[clip-name cl] (:clips state)]
+          (let [{c-div :div c-point :point} cl
+                pt (helper/get-wrapped-point @point c-div (dec c-point) div)]
+            (doseq [[dest messages] (get-in state [:buffer pt clip-name])]
+              (doseq [m messages]
+                (conn/send! dest m)))))
+        (dosync
+         (if (>= @point size)
+           (ref-set point 1)
+           (commute point inc)))))
     (catch Exception e
       (prn "Error playing" player-id e))))
 

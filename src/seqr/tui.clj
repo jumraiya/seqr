@@ -55,6 +55,19 @@
         (recur (inc t) (rest g))))))
 
 
+(defn set-editor-content [^JTextPane editor text]
+  (let [{positions :clip-positions div :clip-div point :clip-point} @tui-state
+        doc (.getStyledDocument editor)
+        default (.getStyle editor "editor-default")
+        [opt-start opt-end] (get-in positions [1 1] [0 (.length text)])]
+    (.setText editor text)
+    (.setCharacterAttributes doc opt-start (- opt-end opt-start) default  true)
+    (doseq [p (range 1 point)]
+      (when-let [[start end] (get-in positions (helper/get-pos p div))]
+        (let [doc (.getStyledDocument editor)
+              style (.getStyle editor (str "action-" (-> (helper/get-pos p div) second)))]
+          (.setCharacterAttributes doc start (- end start) style true))))))
+
 (defn move-selection [grid dir]
   (try
     (let [[row col] (:selected @tui-state [0 0])
@@ -135,32 +148,32 @@
                                 :clip-positions positions})
         (doseq [t tables]
           (.repaint t))
-        (.setText editor text)
-        (doseq [p (range 1 point)]
-          (when-let [[start end] (get-in positions (helper/get-pos p div))]
-            (let [doc (.getStyledDocument editor)
-                  style (.getStyle editor (str "action-" (-> (helper/get-pos p div) second)))]
-              (.setCharacterAttributes doc start (- end start) style true))))))))
+        (set-editor-content editor text)))))
 
 (defn add-clip [player-add-clip cl]
   (let [name (:name cl)]
     (player-add-clip name cl)))
 
-(defn save-clip [editor player-add-clip add?]
+(defn save-clip [^JTextPane editor player-add-clip add?]
   (let [text (.getText editor)
         cl (clip/parse-clip text)
         [positions text] (clip/as-str cl)
         name (:name cl)
         old-groups (map first (filter #(contains? (second %) name) (:clips @tui-state)))
-        group (:group cl "default")]
+        group (:group cl "default")
+        caret-pos (.getCaretPosition editor)]
     (swap! tui-state #(assoc
                         (assoc-in
-                         (reduce (fn [m g] (update-in m [:clips g] dissoc name)) % old-groups)
+                         (reduce (fn [m g]
+                                   (update-in m [:clips g] dissoc name))
+                                 % old-groups)
                          [:clips group name] cl)
                         :clip-div (:div cl)
                         :clip-positions positions
+                        :clip-point (:point cl)
                         :editing-clip name))
-    (.setText editor text)
+    (set-editor-content editor text)
+    (.setCaretPosition editor caret-pos)
     (when add?
       (add-clip player-add-clip cl))))
 
@@ -293,7 +306,11 @@
                      (actionPerformed [^ActionEvent e]
                        (toggle-player)
                        (swap! tui-state assoc :in-player [])))
-        highlighter (DefaultHighlighter$DefaultHighlightPainter. Color/YELLOW)]
+        add-new-clip (proxy [AbstractAction] []
+                     (actionPerformed [^ActionEvent e]
+                       (.setText
+                        editor
+                        "{:args {} :outs {:sc seqr.sc/s-new} :eval seqr.sc/note :name new}")))]
 
     (update-clip-data group-titles clips)
 
@@ -316,17 +333,18 @@
                                                         (:in-player @tui-state))
                                         _ (doseq [c clip-cells] (.blink c true))
                                         div (:clip-div @tui-state 4)
-                                        player-div (get-in state [new :div] 4)
-                                        [bar note] (helper/get-pos n div :player-div player-div)
-                                        point (:clip-point @tui-state 1)
+                                        player-div (get-in @state-ref [new :div] 4)
+                                        point (:clip-point @tui-state 2)
+                                        point (helper/get-wrapped-point n div (dec point) player-div)
                                         ms-period (:ms-period (sched/get-job-info new))]
-
-                                    (when-let [[start end] (get-in @tui-state [:clip-positions bar note])]
-                                      (doto (.getStyledDocument editor)
-                                        (.setCharacterAttributes start (- end start) active-action true))
-                                      (sched/schedule-task
-                                       #(.setCharacterAttributes (.getStyledDocument editor) start (- end start) (nth action-styles note) true)
-                                       ms-period))
+                                    (when point
+                                      (let [[bar note] (helper/get-pos point div)]
+                                          (when-let [[start end] (get-in @tui-state [:clip-positions bar note])]
+                                            (doto (.getStyledDocument editor)
+                                              (.setCharacterAttributes start (- end start) active-action true))
+                                            (sched/schedule-task
+                                             #(.setCharacterAttributes (.getStyledDocument editor) start (- end start) (nth action-styles note) true)
+                                             ms-period))))
 
                                     (sched/schedule-task
                                      #(doseq [c clip-cells]
@@ -366,6 +384,7 @@
                                  ["control alt RIGHT" "switch-focus-right" (move-select "right")]
                                  ["control alt UP" "switch-focus-up" (move-select "up")]
                                  ["control alt DOWN" "switch-focus-down" (move-select "down")]
+                                 ["control alt N" "add-new-clip" add-new-clip]
                                  ["shift SPACE" "start-stop" start-stop]]]
           (-> comp
               (.getInputMap c)

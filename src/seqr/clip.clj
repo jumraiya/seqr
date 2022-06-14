@@ -76,15 +76,16 @@
 
 (defn- add-rest [token text & {:keys [point div] :as clip}]
   (let [rest (:val token)
+        [token text] (next-token text)
+        bar? (= "|" rest)
         [bar note] (get-pos (dec point) div)
-        delta (if (= "|" rest)
-                (if (= note div)
-                  0
-                  (- div note))
+        delta (if bar?
+                (cond
+                  (= "|" (:val token)) div
+                  (= note div) 0
+                  true (- div note))
                 rest)
-        ;_ (prn "bar" bar "note" note "delta" delta)
-        clip (update clip :point #(+ % delta))
-        [token text] (next-token text)]
+        clip (update clip :point #(+ % delta))]
     (condp = (:type token)
       t-rest (add-rest token text clip)
       t-word (add-action token text clip false)
@@ -217,7 +218,6 @@
                              (clojure.string/replace "\"" ""))
                          "\n\n")]
 
-    ;(prn action-strs col-lens)
     (.append text options-str)
     (loop [positions {} offset (.length options-str) p 1]
       (let [[bar note] (get-pos p div)
