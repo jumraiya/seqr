@@ -16,22 +16,27 @@
   (midi/start-recording)
   (midi/stop-recording)
   (do
-    (player/start-player :bpm 10)
+    (player/start-player :bpm 80)
+
     (player/add-clip
-     :test
-     (cl/clip
-      [a4 :1 c3 | d4 |]
-      :args {:synth "sin"}
-      :eval "seqr.sc/sc-note"
-      :outs {:sc "seqr.sc/s-new"}))
+     "test"
+     (cl/parse-clip
+      "{:args {:synth bpfsaw atk 0.01}
+      :eval seqr.sc/note
+      :div 4
+      :outs {:sc seqr.sc/s-new}}
+      a4 :1 c3 | d4 |"))
+
     (player/add-clip
-     :test2
-     (cl/clip
-      [a4 :1 c3 | d4 e2 | f4 :1 d2 |]
-      :args {:synth "sin"}
-      :eval "seqr.sc/sc-note"
-      :group "new"
-      :outs {:sc "seqr.sc/s-new"})))
+     "test2"
+     (cl/parse-clip
+      "{:args {:synth bpfsaw}
+      :eval seqr.sc/note
+      :div 6
+      :outs {:sc seqr.sc/s-new}}
+      a2 c2 | d2 |"))
+    (player/rm-clip "test")
+    )
 
   (player/add-clip
    :test2

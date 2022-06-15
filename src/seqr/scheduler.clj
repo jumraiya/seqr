@@ -45,8 +45,7 @@
 
 (defn schedule-task [cmd delay-ms]
   (let [^ScheduledThreadPoolExecutor t-pool (:thread-pool @pool)]
-    
-    (.schedule t-pool cmd delay-ms TimeUnit/MILLISECONDS)))
+    (.schedule t-pool cmd (long delay-ms) TimeUnit/MILLISECONDS)))
 
 
 (defn is-job-running? [id]
@@ -107,7 +106,7 @@
                                       0
                                       ms-period
                                       TimeUnit/MILLISECONDS)]
-       (commute jobs-ref update id #(merge % {:job job :info job-info}))
+       (commute jobs-ref update id #(merge % {:job job :info job-info :func fun}))
        job-info))))
 
 (defn- shutdown-pool-now!
@@ -191,3 +190,22 @@
 
 (defn get-job-info [id]
   (get-in @(:jobs-ref @pool) [id :info]))
+
+(defn set-period
+  ([job-id ms-period]
+   (set-period @pool job-id ms-period))
+  ([pool-info job-id ms-period]
+   (let [pool (:thread-pool pool-info)
+         jobs-ref (:jobs-ref pool-info)
+         {:keys [job func]} (get @jobs-ref job-id)
+         new-job-info (map->RecurringJob {:id job-id
+                                          :ms-period ms-period})
+         _ (.cancel job true)
+         new-job (.scheduleAtFixedRate pool
+                                       #(func job-id)
+                                       0
+                                       ms-period
+                                       TimeUnit/MILLISECONDS)]
+     (dosync
+      (commute jobs-ref update job-id assoc :job new-job :info new-job-info))
+     new-job-info)))

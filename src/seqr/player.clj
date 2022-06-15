@@ -43,6 +43,16 @@
    (swap! player-states dissoc id)))
 
 
+(defn set-bpm
+  ([bpm]
+   (set-bpm @player bpm))
+  ([player-id bpm]
+   (let [old-period (:ms-period (sched/get-job-info player-id))
+         ms-period (long (helper/calc-period bpm (get-in @player-states [player-id :div])))]
+     (when (not (= old-period ms-period))
+       (sched/set-period player-id ms-period)
+       (swap! player-states update player-id assoc :bpm bpm)))))
+
 (defn set-paused [{:keys [player pause?] :or {player @player pause? true}}]
   (swap! player {:pause? pause?}))
 
@@ -63,14 +73,14 @@
   ([name {:keys [div args] :as clip} player-id]
    (try
      (let [player-div (helper/lcmv div (get-in @player-states [player-id :div]))
-           clip-size (clip/calc-size clip player-div)
+           clip-size (-> clip :point dec)
            new-size (apply max
                            (conj
                             (map #(clip/calc-size (second %) player-div)
                                  (get-in @player-states [player-id :clips]))
-                            clip-size))
+                            (clip/calc-size clip player-div)))
            new-buffer (loop [buffer (get-in @player-states [player-id :buffer]) point 1]
-                        (let [clip-pos (helper/get-pos point div :player-div player-div)
+                        (let [clip-pos (helper/get-pos point div)
                               actions (get buffer point)
                               clip-actions (get-in clip clip-pos)
                               eval-fn (:eval clip)
@@ -104,7 +114,8 @@
                                    :clips (assoc
                                            (:clips %)
                                            name clip)
-                                   :buffer new-buffer})))))
+                                   :buffer new-buffer}))))
+       (set-bpm player-id (get-in @player-states [player-id :bpm])))
      (catch Exception e
        (prn "Error adding clip" e)))))
 
@@ -113,20 +124,22 @@
    (rm-clip name @player))
   ([name player-id]
    (when (is-running? player-id)
-       (swap!
-        player-states
-        update player-id
-        (fn [{:keys [clips buffer] :as state}]
-          (let [new-clips (dissoc clips name)
-                player-div (apply helper/lcmv (map #(:div (second %)) new-clips))
-                player-size (apply max (map #(clip/calc-size (second %) player-div) new-clips))
-                new-state {:clips new-clips
-                           :buffer (reduce (fn [b p]
-                                             (update b p dissoc name))
-                                           buffer (keys buffer))
-                           :div player-div
-                           :size player-size}]
-            (merge state new-state)))))))
+     (let [bpm (get-in @player-states [player-id :bpm])]
+         (swap!
+          player-states
+          update player-id
+          (fn [{:keys [clips buffer div bpm] :as state}]
+            (let [new-clips (dissoc clips name)
+                  player-div (apply helper/lcmv (map #(:div (second %)) new-clips))
+                  player-size (apply max (map #(clip/calc-size (second %) player-div) new-clips))
+                  new-state {:clips new-clips
+                             :buffer (reduce (fn [b p]
+                                               (update b p dissoc name))
+                                             buffer (keys buffer))
+                             :div player-div
+                             :size player-size}]
+              (merge state new-state))))
+         (set-bpm player-id (get-in @player-states [player-id :bpm]))))))
 
 (defn play [player-id]
   (try
@@ -147,3 +160,5 @@
 
 (defn ui []
   (tui/create-tui player player-states toggle-player add-clip rm-clip))
+
+

@@ -385,7 +385,7 @@
                                  ["control alt UP" "switch-focus-up" (move-select "up")]
                                  ["control alt DOWN" "switch-focus-down" (move-select "down")]
                                  ["control alt N" "add-new-clip" add-new-clip]
-                                 ["shift SPACE" "start-stop" start-stop]]]
+                                 ["shift ENTER" "start-stop" start-stop]]]
           (-> comp
               (.getInputMap c)
               (.put (KeyStroke/getKeyStroke k) name))
