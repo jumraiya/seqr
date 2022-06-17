@@ -8,6 +8,8 @@
 
 (conn/connect! "localhost" 57110 :sc)
 
+(conn/connect! "localhost" 57120 :sc-gated)
+
 (comment
   (player/ui)
   (player/stop-player)
@@ -30,7 +32,7 @@
     (player/add-clip
      "test2"
      (cl/parse-clip
-      "{:args {:synth bpfsaw}
+      "{:args {:synth bass}
       :eval seqr.sc/note
       :div 6
       :outs {:sc seqr.sc/s-new}}

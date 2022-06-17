@@ -362,7 +362,7 @@
                          [_ msg] (last new)
                          f (clip/midi-interpreter cl)]
                      (when (and f (-> outs empty? not) msg)
-                       (let [action (f msg)]
+                       (let [action (f msg cl)]
                          (when (contains? action :action)
                              (doseq [[dest out-fn] outs]
                                (conn/send! dest

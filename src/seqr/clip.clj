@@ -290,7 +290,7 @@
         clip (reduce dissoc clip (filter number? (keys clip)))
         clip (reduce
               (fn [clip [p msgs]]
-                (let [actions (vec (filter (comp not empty?) (map midi-fn msgs)))]
+                (let [actions (vec (filter (comp not empty?) (map #(midi-fn % clip) msgs)))]
                   (if (not (empty? actions))
                     (assoc-in clip (get-pos p div) actions)
                     clip)))
@@ -298,5 +298,4 @@
         max-bar (apply max (filter number? (keys clip)))
         max-note (apply max (keys (get clip max-bar)))
         point (get-point max-bar max-note div)]
-    (assoc clip :point (inc point))
-    ))
+    (assoc clip :point (inc point))))

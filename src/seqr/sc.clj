@@ -22,9 +22,10 @@
 
 (defn midi->note
   ([msg]
-   (midi->note msg false))
-  ([msg gated?]
-   (let [cmd (.getCommand msg)
+   (midi->note msg {}))
+  ([msg clip]
+   (let [gated? (get-in clip [:args "gated"])
+         cmd (.getCommand msg)
          ret (if (or (= cmd ShortMessage/NOTE_ON)
                      (and gated?
                           (= cmd ShortMessage/NOTE_OFF)))
@@ -35,4 +36,5 @@
          ShortMessage/NOTE_ON (assoc ret :gate 1)
          ShortMessage/NOTE_OFF (assoc ret :gate 0)
          ret)
-       ret))))
+       ret)))
+  )
