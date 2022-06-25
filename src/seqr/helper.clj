@@ -2,16 +2,17 @@
 
 
 (defn get-wrapped-point [point clip-div clip-size player-div]
-  (let [scale (/ player-div clip-div)
-        scaled (inc (/ (dec point) scale))
-        point (if (> scaled clip-size)
-                (let [r (mod scaled clip-size)]
-                  (if (= r 0)
-                    clip-size
-                    r))
-                scaled)]
-    (when (int? point)
-      point)))
+  (if (> clip-size 0)
+      (let [scale (/ player-div clip-div)
+            scaled (inc (/ (dec point) scale))
+            point (if (> scaled clip-size)
+                    (let [r (mod scaled clip-size)]
+                      (if (= r 0)
+                        clip-size
+                        r))
+                    scaled)]
+        (when (int? point)
+          point))))
 
 (defn get-pos [beat div & {:keys [size player-div]}]
   "Given a offset in the sequence and a subdivision of pattern and sequencer, returns the corresponding bar and beat"

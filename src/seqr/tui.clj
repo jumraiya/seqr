@@ -150,9 +150,6 @@
           (.repaint t))
         (set-editor-content editor text)))))
 
-(defn add-clip [player-add-clip cl]
-  (let [name (:name cl)]
-    (player-add-clip name cl)))
 
 (defn save-clip [^JTextPane editor player-add-clip add?]
   (let [text (.getText editor)
@@ -175,7 +172,7 @@
     (set-editor-content editor text)
     (.setCaretPosition editor caret-pos)
     (when add?
-      (add-clip player-add-clip cl))))
+      (player-add-clip name cl))))
 
 (defn rand-color []
   (rand-nth [Color/GREEN Color/ORANGE Color/WHITE
@@ -281,8 +278,8 @@
                          (actionPerformed [^ActionEvent e]
                            (let [[row col] (get-in @tui-state [:clip-selected idx])
                                  name (-> table (.getModel) (.getValueAt row col))
-                                 cl (get-in (:clips @tui-state) [:clips name])]
-                             (add-clip name cl)
+                                 cl (find-clip name)]
+                             (add-player-clip name cl)
                              (update-clip-data group-titles clips)))))
         rm-selected (fn [table idx]
                       (proxy [AbstractAction] []
@@ -399,6 +396,7 @@
                                  ["S" "move-down" (move-sub-select cl i "down")]
                                  ["D" "move-right" (move-sub-select cl i "right")]
                                  ["ENTER" "open-clip" (open-selected cl i)]
+                                 ["control A" "add-selected" (add-selected cl i)]
                                  ["control R" "rm-selected" (rm-selected cl i)]
                                  ["control D" "del-selected" (del-selected cl i)]]]
           (-> cl

@@ -33,8 +33,8 @@
                {})]
      (if gated?
        (condp = cmd
-         ShortMessage/NOTE_ON (assoc ret :gate 1)
-         ShortMessage/NOTE_OFF (assoc ret :gate 0)
+         ShortMessage/NOTE_ON (assoc ret "gate" 1)
+         ShortMessage/NOTE_OFF (assoc ret "gate" 0)
          ret)
        ret)))
   )
