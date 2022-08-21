@@ -66,7 +66,8 @@
       (when-let [[start end] (get-in positions (helper/get-pos p div))]
         (let [doc (.getStyledDocument editor)
               style (.getStyle editor (str "action-" (-> (helper/get-pos p div) second)))]
-          (.setCharacterAttributes doc start (- end start) style true))))))
+          ;(.setCharacterAttributes doc start (- end start) style true)
+          )))))
 
 (defn move-selection [grid dir]
   (try

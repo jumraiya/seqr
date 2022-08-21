@@ -1,9 +1,10 @@
 (ns seqr.clip
-  (:use [clojure.string :refer [replace join]]
-        [clojure.data :refer [diff]]
-        [seqr.helper :refer [get-pos get-point]]
-        [seqr.midi :as midi]
-        [seqr.sc :as sc]))
+  (:require [clojure.string :refer [join]]
+            [clojure.data :refer [diff]]
+            [seqr.helper :refer [get-pos get-point]]
+            [seqr.music :as m]
+            [seqr.midi :as midi]
+            [seqr.sc :as sc]))
 
 (def t-word ::word) ;; [0-9A-Za-z]+
 
@@ -44,11 +45,12 @@
 (declare add-map-val)
 
 
+
 (defn- next-token [text]
   (if text
     (let [text (.trim text)
-          [match options rest bar bracket-open bracket-close brace-open brace-close word]
-          (re-find #"(%)|(:[0-9]+)|(\|)|(\[)|(\])|(\{)|(\})|([^\s\[\]\{\}]+)" text)]
+          [match options rest bar bracket-open bracket-close brace-open brace-close paren-open paren-close word]
+          (re-find #"(%)|(:[0-9]+)|(\|)|(\[)|(\])|(\{)|(\})|(\()|(\))|([^\s\[\]\{\}\(\)]+)" text)]
       [(cond
          (-> options nil? not) {:type t-options-boundary :val "%"}
          (-> rest nil? not) {:type t-rest :val (Integer/parseInt (.substring rest 1))}
@@ -57,6 +59,8 @@
          (-> bracket-close nil? not) {:type t-bracket-close :val "]"}
          (-> brace-open nil? not) {:type t-brace-open :val "{"}
          (-> brace-close nil? not) {:type t-brace-close :val "}"}
+         (-> paren-open nil? not) {:type t-paren-open :val "("}
+         (-> paren-close nil? not) {:type t-paren-close :val ")"}
          (-> word nil? not) {:type t-word
                              :val (cond
                                     (re-matches #"-?[0-9]+\.[0-9]+" word)
@@ -127,6 +131,7 @@
                clip)]
     (condp = (:type token)
       t-word (add-action token text clip in-group?)
+      t-paren-open (add-action token text clip in-group?)
       t-bracket-open (if in-group?
                        (throw (Exception. "Cannot nest group actions"))
                        (add-action token text clip true))
@@ -134,22 +139,45 @@
       t-rest (add-rest token text clip)
       t-eof clip)))
 
+(defn- eval-clj [str]
+  (eval (read-string str)))
+
+
+
+(defn- get-after-sexp [text]
+  "Get the text after a sexp, this allows the parsing to continue after we encounter a clj expression"
+  (loop [lvl 0 text text]
+    (let [[token text] (next-token text)
+          lvl (condp = (:type token)
+                t-paren-open (inc lvl)
+                t-paren-close (dec lvl)
+                lvl)]
+      (if (= lvl 0)
+        text
+        (recur lvl text)))))
 
 (defn- add-action [token text {:keys [eval point div args] :or {args {}} :as clip} group?]
   (let [pos (get-pos point div)
         after-group? (= t-bracket-close (:type token))
-        clip (if (= t-word (:type token))
-               (update-in clip pos #(conj (vec %) (merge args {:action (:val token)})))
+        [is-action? action text action-str] (condp = (:type token)
+                                              t-word [true (:val token) text (:val token)]
+                                              t-paren-open (let [a-str (str "( " text)
+                                                                 xform (read-string a-str)]
+                                                             [true xform (get-after-sexp a-str) (str xform)])
+                                              [false nil text nil])
+        clip (if is-action?
+               (update-in clip pos #(conj (vec %) (merge args {:action action :action-str action-str})))
                clip)
         [token text] (next-token text)
         clip (update clip :point (if (or group?
                                          (= t-brace-open (:type token))
                                          #_(and after-group?
-                                              (= t-brace-open (:type token))))
+                                                (= t-brace-open (:type token))))
                                    identity
                                    inc))]
     (condp = (:type token)
       t-word (add-action token text clip group?)
+      t-paren-open (add-action token text clip group?)
       t-rest (add-rest token text clip)
       t-bracket-open (if group?
                        (throw (Exception. "Cannot nest group actions"))
@@ -164,12 +192,12 @@
                         (let [multi-action? (> (count actions) 1)
                               [common-params] (if multi-action?
                                                 (diff
-                                                 (reduce #(nth (diff (dissoc %1 :action) (dissoc %2 :action)) 2) actions)
+                                                 (reduce #(nth (diff (dissoc %1 :action :action-str) (dissoc %2 :action :action-str)) 2) actions)
                                                  args))
                               action-str (->> actions
                                               (map
-                                               #(let [a-params (-> (dissoc % :action) (diff common-params) first (diff args) first)]
-                                                  (str (:action %) (if a-params (str " " (-> a-params str (clojure.string/replace "\"" "")) " ")) " ")))
+                                               #(let [a-params (-> (dissoc % :action :action-str) (diff common-params) first (diff args) first)]
+                                                  (str (or (:action-str %) (:action %)) (if a-params (str " " (-> a-params str (clojure.string/replace "\"" "")) " ")) " ")))
                                               join)]
                           (.trim
                            (if multi-action?
@@ -235,6 +263,14 @@
           (recur positions end (inc p))
           [positions (.toString text)])))))
 
+
+(defn wrap-eval [ev args]
+  (ev (reduce (fn [m [k v]]
+                (if (list? v)
+                  (assoc m k (clojure.core/eval v))
+                  m))
+              args args)))
+
 (defn parse-clip [text & [clip]]
   (let [clip (merge {:div 4 :args {} :outs {} :group "default"} clip)
         [token text] (next-token text)
@@ -244,6 +280,7 @@
                               (parse-clip text (merge clip options)))
                t-brace-close (parse-clip text clip)
                t-bracket-open (add-action token text clip true)
+               t-paren-open (add-action token text clip false)
                t-word (add-action token text clip false)
                t-rest (add-rest token text clip)
                t-eof clip)
@@ -256,8 +293,8 @@
                                         (-> % find-var meta))
                   %)
         outs (into {} (map (fn [[k v]] [k (get-fn v)]) (:outs clip)))
-        eval-fn (or (:eval clip) identity)
-        eval-fn (get-fn eval-fn)]
+        eval-fn (get-fn (or (:eval clip) identity))
+        eval-fn (with-meta (partial wrap-eval eval-fn) (meta eval-fn))]
     (assoc clip :eval eval-fn :outs outs)))
 
 (defmacro clip [actions & {:keys [div args outs eval group] :or {div 4 args {} group "default"} :as clip}]

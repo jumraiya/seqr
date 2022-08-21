@@ -91,6 +91,7 @@
                                         (assoc actions name
                                                (reduce
                                                 (fn [point-actions args]
+                                                  ;(prn args eval-fn (eval-fn args))
                                                   (reduce
                                                    (fn [byte-data [dest proc-fn]]
                                                      (update byte-data dest
