@@ -76,6 +76,17 @@
          (.substring text (.length match)))])
     [{:type t-eof}]))
 
+(defn- get-after-sexp [text]
+  "Get the text after a sexp, this allows the parsing to continue after we encounter a clj expression"
+  (loop [lvl 0 text text]
+    (let [[token text] (next-token text)
+          lvl (condp = (:type token)
+                t-paren-open (inc lvl)
+                t-paren-close (dec lvl)
+                lvl)]
+      (if (= lvl 0)
+        text
+        (recur lvl text)))))
 
 
 (defn- add-rest [token text & {:keys [point div] :as clip}]
@@ -97,25 +108,28 @@
       t-eof clip
       t-unknown (throw (Exception. (str "unknown token " token " : " text))))))
 
-(defn- add-map-key [data text]
+(defn- add-map-key [data text & [dynamic?]]
   (let [[token text] (next-token text)
         k (:val token)
         k (if (and (string? k) (> (.length k) 0) (= (.charAt k 0) \:))
             (keyword (.substring k 1))
             k)]
     (condp = (:type token)
-      t-word (add-map-val data text k)
-      t-brace-close [data text])))
+      t-word (add-map-val data text k dynamic?)
+      t-brace-close [data text dynamic?])))
 
-(defn- add-map-val [data text key]
+(defn- add-map-val [data text key & [dynamic?]]
   (let [[token text] (next-token text)]
     (condp = (:type token)
-      t-word (add-map-key (assoc data key (:val token)) text)
+      t-word (add-map-key (assoc data key (:val token)) text dynamic?)
+      t-paren-open (let [a-str (str "( " text)
+                         xform (read-string a-str)]
+                     (add-map-key (assoc data key xform) (get-after-sexp a-str) true))
       t-brace-open (let [[sub text] (add-map-key {} text)]
-                       (add-map-key (assoc data key sub) text)))))
+                       (add-map-key (assoc data key sub) text dynamic?)))))
 
 (defn- add-params [token text {:keys [eval point div] :as clip} in-group? after-group?]
-  (let [[params text] (add-map-key {} text)
+  (let [[params text dynamic?] (add-map-key {} text)
         pos (get-pos point div)
         clip (if after-group?
                (update-in clip pos
@@ -125,6 +139,9 @@
                           (fn [actions]
                             (conj (-> actions butlast vec)
                                   (merge (last actions) params)))))
+        clip (if dynamic?
+               (update clip :dynamic conj point)
+               clip)
         [token text] (next-token text)
         clip (if (not in-group?)
                (update clip :point inc)
@@ -143,19 +160,6 @@
   (eval (read-string str)))
 
 
-
-(defn- get-after-sexp [text]
-  "Get the text after a sexp, this allows the parsing to continue after we encounter a clj expression"
-  (loop [lvl 0 text text]
-    (let [[token text] (next-token text)
-          lvl (condp = (:type token)
-                t-paren-open (inc lvl)
-                t-paren-close (dec lvl)
-                lvl)]
-      (if (= lvl 0)
-        text
-        (recur lvl text)))))
-
 (defn- add-action [token text {:keys [eval point div args] :or {args {}} :as clip} group?]
   (let [pos (get-pos point div)
         after-group? (= t-bracket-close (:type token))
@@ -165,9 +169,9 @@
                                                                  xform (read-string a-str)]
                                                              [true xform (get-after-sexp a-str) (str xform)])
                                               [false nil text nil])
-        clip (if is-action?
-               (update-in clip pos #(conj (vec %) (merge args {:action action :action-str action-str})))
-               clip)
+        clip (cond-> clip
+               is-action? (update-in pos #(conj (vec %) (merge args {:action action :action-str action-str})))
+               (= (:type token) t-paren-open)(update :dynamic conj point))
         [token text] (next-token text)
         clip (update clip :point (if (or group?
                                          (= t-brace-open (:type token))
@@ -233,7 +237,7 @@
         fn-to-str #(str (-> % meta :ns) "/" (-> % meta :name))
         options (into {} (map (fn [[k v]]
                                 (when (and (not (number? k))
-                                           (not (= k :point))
+                                           (not (contains? #{:point :dynamic} k))
                                            (not (= v clojure.core/identity)))
                                   [k (cond
                                        (map? v) (into {} (map (fn [[k v]] [k (if (fn? v) (fn-to-str v) v)]) v))
@@ -272,7 +276,7 @@
               args args)))
 
 (defn parse-clip [text & [clip]]
-  (let [clip (merge {:div 4 :args {} :outs {} :group "default"} clip)
+  (let [clip (merge {:div 4 :args {} :outs {} :group "default" :dynamic #{}} clip)
         [token text] (next-token text)
         clip (assoc clip :point 1)
         clip (condp = (:type token)

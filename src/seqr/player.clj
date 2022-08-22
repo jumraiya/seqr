@@ -16,6 +16,7 @@
 
 (declare stop-player)
 
+(declare update-dynamic)
 
 (sched/start-sched)
 
@@ -91,7 +92,6 @@
                                         (assoc actions name
                                                (reduce
                                                 (fn [point-actions args]
-                                                  ;(prn args eval-fn (eval-fn args))
                                                   (reduce
                                                    (fn [byte-data [dest proc-fn]]
                                                      (update byte-data dest
@@ -154,10 +154,30 @@
                 (conn/send! dest m)))))
         (dosync
          (if (>= @point size)
-           (ref-set point 1)
+           (do
+             (ref-set point 1)
+             (sched/schedule-task #(update-dynamic player-id) 10))
            (commute point inc)))))
     (catch Exception e
       (prn "Error playing" player-id e))))
+
+(defn update-dynamic [player-id]
+  (try
+    (when-let [state (get @player-states player-id)]
+      (let [player-div (:div state)
+            clips (:clips state)]
+        (doseq [[clip-name {:keys [point div eval outs dynamic] :as cl}] clips]
+          (doseq [p dynamic]
+            (let [wrapped (helper/get-wrapped-point p div (dec point) player-div)
+                  key [player-id :buffer wrapped clip-name]
+                  actions (get-in cl (helper/get-pos p div))
+                  new-data (reduce
+                            (fn [data [dest proc-fn]]
+                              (assoc data dest (map #(proc-fn (eval %)) actions)))
+                            {} outs)]
+              (swap! player-states assoc-in key new-data))))))
+    (catch Exception e
+      (prn "Error updating player buffer" player-id e))))
 
 (defn ui []
   (tui/create-tui player player-states toggle-player add-clip rm-clip))
