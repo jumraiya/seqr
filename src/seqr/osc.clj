@@ -1,5 +1,6 @@
 (ns seqr.osc
-  (:use [clojure.string :refer [split]]))
+  (:require [clojure.string :refer [split]]
+            [seqr.helper :as helper]))
 
 
 (def t-word ::word)
@@ -88,6 +89,29 @@
      (if (and text match (> (.length text) (.length match)))
        (.substring text (.length match)))]))
 
+
+(defn mk-fn [template]
+  (let [[url text] (next-token template)
+        url (:val url)
+        osc-msg (osc-msg url)
+        xforms (loop [xforms [] text text]
+                 (let [[data text] (next-token text)
+                       t (:type data)
+                       v (:val data)
+                       [k d] (if (= t t-param)
+                               v [nil nil])
+                       m (condp = t
+                           t-int    (list `push-int v)
+                           t-float  (list `push-float v)
+                           t-word   (list `push-string v)
+                           t-param  (list `push-val
+                                      (if (contains? args k)
+                                        (get args k)
+                                        (or d -666))))]
+                   (if text
+                     (recur (conj xforms m) text)
+                     xforms)))]
+    (helper/wrap-xform-in-fn [args] (concat (list '-> 'args) xforms))))
 
 (defn builder [template]
   "Usage (builder \"/s_new ?node-id:-1 ?target:0\" {:target 22})"

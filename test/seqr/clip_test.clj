@@ -1,4 +1,4 @@
-(ns seqr.clip-test
+(ns seqr.test.clip-test
   (:require [clojure.test :refer :all]
             [seqr.clip :refer :all]))
 
@@ -41,4 +41,8 @@
     (let [cl (parse-clip "a (nth [1 2 3] (rand-int 3))")
           action (first (get-in cl [1 2]))]
       (is (= (:action-str action) "(nth [1 2 3] (rand-int 3))"))
-      (is (contains? #{1 2 3} (eval (:action action)))))))
+      (is (contains? #{1 2 3} (eval (:action action))))))
+  (testing "Testing serialization"
+    (let [cl (parse-clip "{:eval seqr.sc/note :args {dur 1}} a b {dur 2} c :1 d")
+          [action-positions text] (as-str cl)]
+      (is (= (clojure.string/trim text) "{:args {dur 1}\n :group default\n :div 4\n :outs {}\n :eval seqr.sc/note}\n\na b {dur 2} c   |\n\nd")))))

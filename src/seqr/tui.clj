@@ -4,19 +4,30 @@
             [seqr.clip :as clip]
             [seqr.midi :as midi]
             [seqr.connections :as conn])
-  (:import (javax.swing JTextPane JFrame JTextField JScrollPane JLabel JTable JPanel BoxLayout AbstractAction KeyStroke JComponent BorderFactory)
+  (:import (javax.swing JFileChooser JTextPane JFrame JTextField JScrollPane JLabel JTable JPanel BoxLayout AbstractAction KeyStroke JComponent BorderFactory)
            (javax.swing.text DefaultHighlighter$DefaultHighlightPainter StyleContext$NamedStyle StyleConstants)
            (javax.swing.border LineBorder)
+           (javax.swing.filechooser FileSystemView)
            (javax.swing.table AbstractTableModel TableCellRenderer)
            (java.awt Dimension BorderLayout Font Color FlowLayout)
            (java.awt.event KeyListener KeyEvent ActionEvent)
            (seqr.tui ClipRenderer)))
 
+(declare save-clip)
+(declare update-clip-data)
 
 (defonce ^:private tui-frame (atom nil))
 
 ;; :clips {:group-1 {:clip-1 {} :clip-2 {}}}
 (defonce ^:private tui-state (atom {:selected [0 0] :clips {} :editing-clip nil :clip-selected {} :group-selected 0}))
+
+(defn rand-color []
+  (rand-nth [Color/GREEN Color/ORANGE Color/WHITE
+             Color/YELLOW Color/CYAN Color/PINK Color/LIGHT_GRAY]))
+
+
+(def rand-colors (repeatedly rand-color))
+
 
 (defn find-clip [name]
   (some (fn [[_ m]]
@@ -55,19 +66,61 @@
         (recur (inc t) (rest g))))))
 
 
+(defn load-sketch [path editor clip-groups clips]
+  (try
+    (let [sketch-clips (read-string (slurp path))]
+      (doseq [[name text] sketch-clips]
+        (let [cl (assoc (clip/parse-clip text) :name name)]
+          (save-clip editor nil false text)
+          (update-clip-data clip-groups clips))))
+    (catch Exception e
+      (prn "Error loading sketch" e))))
+
+(defn save-sketch [path]
+  (try
+    (let [sketch (reduce
+                  (fn [sketch [group clips]]
+                    (reduce
+                     #(assoc %1 (first %2) (second (clip/as-str (second %2))))
+                     sketch clips))
+                  {} (:clips @tui-state))]
+      (spit path (str sketch)))
+    (catch Exception e
+      (prn "Error saving sketch" e))))
+
+
+(defn save-load-sketch [editor clip-groups clips load?]
+  (let [chooser (JFileChooser. (.getHomeDirectory (FileSystemView/getFileSystemView)))
+        res (if load?
+              (.showOpenDialog chooser editor)
+              (.showSaveDialog chooser editor))]
+    (when (= res JFileChooser/APPROVE_OPTION)
+      (let [path (->> chooser
+                      (.getSelectedFile)
+                      (.getAbsolutePath))]
+        (if load?
+          (load-sketch path editor clip-groups clips)
+          (save-sketch path))))))
+
+
 (defn set-editor-content [^JTextPane editor text]
-  (let [{positions :clip-positions div :clip-div point :clip-point} @tui-state
-        doc (.getStyledDocument editor)
-        default (.getStyle editor "editor-default")
-        [opt-start opt-end] (get-in positions [1 1] [0 (.length text)])]
-    (.setText editor text)
-    (.setCharacterAttributes doc opt-start (- opt-end opt-start) default  true)
-    (doseq [p (range 1 point)]
-      (when-let [[start end] (get-in positions (helper/get-pos p div))]
-        (let [doc (.getStyledDocument editor)
-              style (.getStyle editor (str "action-" (-> (helper/get-pos p div) second)))]
-          ;(.setCharacterAttributes doc start (- end start) style true)
-          )))))
+  (try
+    (let [{positions :clip-positions div :clip-div point :clip-point} @tui-state
+          doc (.getStyledDocument editor)
+          default (.getStyle editor "editor-default")
+          [opt-end _] (get-in positions [1 1] [(.length text)])]
+      (.setText editor text)
+      (when (> opt-end 0)
+        (.setCharacterAttributes doc 0 opt-end default true))
+      (doseq [p (range 1 point)]
+        (let [[start end] (get-in positions (helper/get-pos p div))
+              doc (.getStyledDocument editor)
+              style-name (str "action-" (-> (helper/get-pos p div) second))
+              style (.getStyle editor style-name)]
+          (when (and start end (> end start))
+            (.setCharacterAttributes doc start (- end start 1) style true)))))
+    (catch Exception e
+      (prn "Error setting editor content" e))))
 
 (defn move-selection [grid dir]
   (try
@@ -152,35 +205,32 @@
         (set-editor-content editor text)))))
 
 
-(defn save-clip [^JTextPane editor player-add-clip add?]
-  (let [text (.getText editor)
-        cl (clip/parse-clip text)
-        [positions text] (clip/as-str cl)
-        name (:name cl)
-        old-groups (map first (filter #(contains? (second %) name) (:clips @tui-state)))
-        group (:group cl "default")
-        caret-pos (.getCaretPosition editor)]
-    (swap! tui-state #(assoc
-                        (assoc-in
-                         (reduce (fn [m g]
-                                   (update-in m [:clips g] dissoc name))
-                                 % old-groups)
-                         [:clips group name] cl)
-                        :clip-div (:div cl)
-                        :clip-positions positions
-                        :clip-point (:point cl)
-                        :editing-clip name))
-    (set-editor-content editor text)
-    (.setCaretPosition editor caret-pos)
-    (when add?
-      (player-add-clip name cl))))
+(defn save-clip [^JTextPane editor player-add-clip add? & [text]]
+  (try
+    (let [text (or text (.getText editor))
+          cl (clip/parse-clip text)
+          [positions text] (clip/as-str cl)
+          name (:name cl)
+          old-groups (map first (filter #(contains? (second %) name) (:clips @tui-state)))
+          group (:group cl "default")
+          caret-pos (.getCaretPosition editor)]
+      (swap! tui-state #(assoc
+                         (assoc-in
+                          (reduce (fn [m g]
+                                    (update-in m [:clips g] dissoc name))
+                                  % old-groups)
+                          [:clips group name] cl)
+                         :clip-div (:div cl)
+                         :clip-positions positions
+                         :clip-point (:point cl)
+                         :editing-clip name))
+      (set-editor-content editor text)
+      (when add?
+        (player-add-clip name cl))
+      (.setCaretPosition editor caret-pos))
+    (catch Exception e
+      (prn "Error adding clip" e))))
 
-(defn rand-color []
-  (rand-nth [Color/GREEN Color/ORANGE Color/WHITE
-             Color/YELLOW Color/CYAN Color/PINK Color/RED]))
-
-
-(def rand-colors (repeatedly rand-color))
 
 (defn create-tui [id-ref state-ref toggle-player add-player-clip rm-player-clip]
   (remove-watch id-ref :player-tui-id)
@@ -308,7 +358,13 @@
                      (actionPerformed [^ActionEvent e]
                        (.setText
                         editor
-                        "{:args {} :outs {:sc seqr.sc/s-new} :eval seqr.sc/note :name new}")))]
+                        "{:args {} :outs {:sc seqr.sc/s-new} :eval seqr.sc/note :name new}")))
+        save-sketch (proxy [AbstractAction] []
+                      (actionPerformed [^ActionEvent e]                      
+                        (save-load-sketch editor group-titles clips false)))
+        load-sketch (proxy [AbstractAction] []
+                      (actionPerformed [^ActionEvent e]                      
+                        (save-load-sketch editor group-titles clips true)))]
 
     (update-clip-data group-titles clips)
 
@@ -383,6 +439,8 @@
                                  ["control alt UP" "switch-focus-up" (move-select "up")]
                                  ["control alt DOWN" "switch-focus-down" (move-select "down")]
                                  ["control alt N" "add-new-clip" add-new-clip]
+                                 ["control alt O" "load-sketch" load-sketch]
+                                 ["control alt S" "save-sketch" save-sketch]
                                  ["shift ENTER" "start-stop" start-stop]]]
           (-> comp
               (.getInputMap c)

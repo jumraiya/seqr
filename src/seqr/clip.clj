@@ -263,7 +263,7 @@
                         (assoc-in positions [bar note] [offset end])
                         positions)]
         (.append text s)
-        (if (< p point)
+        (if (< p (dec point))
           (recur positions end (inc p))
           [positions (.toString text)])))))
 
@@ -297,7 +297,7 @@
                                         (-> % find-var meta))
                   %)
         outs (into {} (map (fn [[k v]] [k (get-fn v)]) (:outs clip)))
-        eval-fn (get-fn (or (:eval clip) identity))
+        eval-fn (get-fn (or (:eval clip) (with-meta identity {:ns "clojure.core" :name "identity"})))
         eval-fn (with-meta (partial wrap-eval eval-fn) (meta eval-fn))]
     (assoc clip :eval eval-fn :outs outs)))
 

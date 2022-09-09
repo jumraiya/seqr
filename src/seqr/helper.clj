@@ -58,3 +58,19 @@
 (defn calc-period [bpm div]
   "Given a bpm, division and size of a sequencer, calculate period in ms"
   (/ 60000 bpm div))
+
+(defn- crawl [f l]
+    (map #(if (coll? %)
+            (let [l2 (crawl f %)]
+                (if (vector? %)
+                  (vec l2)
+                  l2))
+            (f %))
+         l))
+  
+(defmacro wrap-xform-in-fn [args xform]
+  (let [arg-syms (into {} (map #(vector % (gensym)) args))
+        args (vals arg-syms)
+        xform (crawl #(or (get arg-syms %) %) xform)]
+    `(fn [~@args]
+       ~xform)))
