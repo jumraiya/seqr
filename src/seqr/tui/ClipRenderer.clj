@@ -8,7 +8,7 @@
 (defn clip-setStyle [this]
   (let [{:keys [editing-clip in-player] :or {in-player []}} @(:tui-state (.state this))
         val (or (.getText this) "")
-        in-player? (->> val (.indexOf in-player) (= -1) not)]
+        in-player? (contains? (set in-player) val)]
     (cond
       (= val editing-clip) (doto this
                              (.setOpaque true)

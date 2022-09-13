@@ -6,9 +6,9 @@
    [seqr.connections :as conn]
    [seqr.midi :as midi]))
 
-(conn/connect! "localhost" 57110 :sc)
+(conn/add-destination! "localhost" 57110 :sc)
 
-(conn/connect! "localhost" 57120 :sc-gated)
+(conn/add-destination! "localhost" 57120 :sc-gated)
 
 (comment
   (player/ui)

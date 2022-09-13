@@ -1,10 +1,17 @@
 (ns seqr.sc
   (:require [seqr.osc :as osc]
-            [seqr.music :as mu])
+            [seqr.music :as mu]
+            [seqr.connections :as c])
   (:import [javax.sound.midi MidiMessage ShortMessage]))
 
 (def s-new
   (osc/builder "/s_new ?synth ?node-id:-1 ?add-action:0 ?target:0 ...?args"))
+
+(def query-nodes
+  (osc/builder "/g_queryTree ?group:0 ?flag:0"))
+
+(def stop-gated
+  (osc/builder "/stop_gated 0"))
 
 (defn note [{:keys [action synth] :as data}]
   (let [n (mu/note action)
@@ -36,5 +43,5 @@
          ShortMessage/NOTE_ON (assoc ret "gate" 1)
          ShortMessage/NOTE_OFF (assoc ret "gate" 0)
          ret)
-       ret)))
-  )
+       ret))))
+

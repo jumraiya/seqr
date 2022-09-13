@@ -20,10 +20,12 @@
 
 (sched/start-sched)
 
-(defn get-player [& {:keys [div bpm size paused? id] :or {div 4 bpm 80 size 4 paused? false} :as options}]
+(defn get-player [& {:keys [div bpm size paused? play-once? run? id]
+                     :or {div 4 bpm 80 size 4 paused? false play-once? false run? true}
+                     :as options}]
   "Create a player instance which is essentially a scheduled job in the pool"
   (let [period (helper/calc-period bpm div)
-        state {:div div :bpm bpm :size size :clips {} :buffer {} :point (ref 1)}
+        state {:div div :bpm bpm :size size :clips {} :buffer {} :point (ref 1) :play-once? play-once? :run? run?}
         player-id (if id
                     (sched/start-job period play id)
                     (sched/start-job period play))]
@@ -41,6 +43,7 @@
    (stop-player @player))
   ([id]
    (sched/stop-job id)
+   (conn/send! :sc-gated (seqr.sc/stop-gated {}))
    (swap! player-states dissoc id)))
 
 
@@ -54,8 +57,8 @@
        (sched/set-period player-id ms-period)
        (swap! player-states update player-id assoc :bpm bpm)))))
 
-(defn set-paused [{:keys [player pause?] :or {player @player pause? true}}]
-  (swap! player {:pause? pause?}))
+(defn set-running [val]
+  (swap! player-states assoc-in [@player :run?] val))
 
 (defn is-running?
   ([]
@@ -63,10 +66,10 @@
   ([id]
    (sched/is-job-running? id)))
 
-(defn toggle-player []
+(defn toggle-player [& [args]]
   (if (is-running? @player)
     (stop-player)
-    (start-player)))
+    (start-player args)))
 
 (defn add-clip
   ([name clip]
@@ -145,19 +148,22 @@
 (defn play [player-id]
   (try
     (when-let [state (get @player-states player-id)]
-      (let [{:keys [point size div]} state]
-        (doseq [[clip-name cl] (:clips state)]
-          (let [{c-div :div c-point :point} cl
-                pt (helper/get-wrapped-point @point c-div (dec c-point) div)]
-            (doseq [[dest messages] (get-in state [:buffer pt clip-name])]
-              (doseq [m messages]
-                (conn/send! dest m)))))
-        (dosync
-         (if (>= @point size)
-           (do
-             (ref-set point 1)
-             (sched/schedule-task #(update-dynamic player-id) 10))
-           (commute point inc)))))
+      (let [{:keys [point size div play-once? run?]} state]
+        (when run?
+         (doseq [[clip-name cl] (:clips state)]
+           (let [{c-div :div c-point :point} cl
+                 pt (helper/get-wrapped-point @point c-div (dec c-point) div)]
+             (doseq [[dest messages] (get-in state [:buffer pt clip-name])]
+               (doseq [m messages]
+                 (conn/send! dest m)))))
+          (dosync
+           (if (>= @point size)
+             (if play-once?
+               (stop-player player-id)
+               (do
+                 (ref-set point 1)
+                 (sched/schedule-task #(update-dynamic player-id) 10)))
+             (commute point inc))))))
     (catch Exception e
       (prn "Error playing" player-id e))))
 
@@ -179,7 +185,10 @@
     (catch Exception e
       (prn "Error updating player buffer" player-id e))))
 
+(defn update-player [ks val]
+  (swap! player-states assoc-in (concat [@player] ks) true))
+
 (defn ui []
-  (tui/create-tui player player-states toggle-player add-clip rm-clip))
+  (tui/create-tui player player-states toggle-player add-clip rm-clip update-player))
 
 

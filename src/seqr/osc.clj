@@ -1,6 +1,7 @@
 (ns seqr.osc
   (:require [clojure.string :refer [split]]
-            [seqr.helper :as helper]))
+            [seqr.helper :as helper])
+  (:import [java.nio ByteBuffer]))
 
 
 (def t-word ::word)
@@ -90,7 +91,7 @@
        (.substring text (.length match)))]))
 
 
-(defn mk-fn [template]
+#_(defn mk-fn [template]
   (let [[url text] (next-token template)
         url (:val url)
         osc-msg (osc-msg url)
@@ -144,3 +145,49 @@
               (recur m text)
               (get-packet m))))
         (get-packet osc-msg)))))
+
+(defn osc-align
+  "Jump the current position to a 4 byte boundary for OSC compatible alignment."
+  [buf]
+  (.position buf (bit-and (bit-not 3) (+ 3 (.position buf)))))
+
+(defn- decode-string
+  "Decode string from current pos in buf. OSC strings are terminated by a null
+  char."
+  [buf]
+  (let [start (.position buf)]
+    (while (not (zero? (.get buf))) nil)
+    (let [end (.position buf)
+          len (- end start)
+          str-buf (byte-array len)]
+      (.position buf start)
+      (.get buf str-buf 0 len)
+      (osc-align buf)
+      (String. str-buf 0 (dec len)))))
+
+(defn- decode-blob
+  "Decode binary blob from current pos in buf. Size of blob is determined by the
+  first int found in buffer."
+  [buf]
+  (let [size (.getInt buf)
+        blob (byte-array size)]
+    (.get buf blob 0 size)
+    (osc-align buf)
+    blob))
+
+(defn read-msg [data]
+  (let [buf (ByteBuffer/wrap data)
+        path (decode-string buf)
+        type-tag (decode-string buf)
+        args (reduce (fn [mem t]
+                       (conj mem
+                             (case t
+                               \i (.getInt buf)
+                               \h (.getLong buf)
+                               \f (.getFloat buf)
+                               \d (.getDouble buf)
+                               \b (decode-blob buf)
+                               \s (decode-string buf))))
+                     []
+                     (rest type-tag))]
+    {:url path :tags type-tag :data args}))

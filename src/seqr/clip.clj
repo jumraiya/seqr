@@ -230,10 +230,10 @@
                                      (recur actions lens (inc p) (if has-action? p last-action))
                                      [actions lens])))
         pad-str #(str (get action-strs % " ")
-                      (apply str (repeat (- (get col-lens
+                      #_(apply str (repeat (- (get col-lens
                                                  (second (get-pos % div)) 1)
                                             (.length (get action-strs % " ")))
-                                         " ")))
+                                           " ")))
         fn-to-str #(str (-> % meta :ns) "/" (-> % meta :name))
         options (into {} (map (fn [[k v]]
                                 (when (and (not (number? k))
@@ -340,3 +340,23 @@
         max-note (apply max (keys (get clip max-bar)))
         point (get-point max-bar max-note div)]
     (assoc clip :point (inc point))))
+
+(defn shift-left [{:keys [div point] :as clip} at]
+  (reduce
+   (fn [cl p]
+     (let [to (get-pos (dec p) div)
+           action (get-in clip (get-pos p div))]
+       (if action
+         (assoc-in cl to action)
+         (update cl (first to) dissoc (second to)))))
+   clip (range at (inc point))))
+
+(defn shift-right [{:keys [div point] :as clip} at]
+  (reduce
+   (fn [cl p]
+     (let [to (get-pos (inc p) div)
+           action (get-in clip (get-pos p div))]
+       (if action
+         (assoc-in cl to action)
+         (update cl (first to) dissoc (second to)))))
+   clip (range at -1 -1)))

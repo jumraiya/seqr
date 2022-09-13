@@ -232,7 +232,7 @@
       (prn "Error adding clip" e))))
 
 
-(defn create-tui [id-ref state-ref toggle-player add-player-clip rm-player-clip]
+(defn create-tui [id-ref state-ref toggle-player add-player-clip rm-player-clip update-player-state]
   (remove-watch id-ref :player-tui-id)
   (remove-watch state-ref :player-tui)
   (when (and @tui-frame (.isValid @tui-frame))
@@ -354,6 +354,11 @@
                      (actionPerformed [^ActionEvent e]
                        (toggle-player)
                        (swap! tui-state assoc :in-player [])))
+        play-clip (proxy [AbstractAction] []
+                     (actionPerformed [^ActionEvent e]
+                       (toggle-player {:play-once? true :run? false})
+                       (save-clip editor add-player-clip true)
+                       (update-player-state [:run?] true)))
         add-new-clip (proxy [AbstractAction] []
                      (actionPerformed [^ActionEvent e]
                        (.setText
@@ -439,6 +444,7 @@
                                  ["control alt UP" "switch-focus-up" (move-select "up")]
                                  ["control alt DOWN" "switch-focus-down" (move-select "down")]
                                  ["control alt N" "add-new-clip" add-new-clip]
+                                 ["control P" "play-clip" play-clip]
                                  ["control alt O" "load-sketch" load-sketch]
                                  ["control alt S" "save-sketch" save-sketch]
                                  ["shift ENTER" "start-stop" start-stop]]]
@@ -469,7 +475,9 @@
       (.put (KeyStroke/getKeyStroke "control S") "save-clip")
       (.put (KeyStroke/getKeyStroke "control A") "add-clip")
       (.put (KeyStroke/getKeyStroke "control R") "toggle-recording")
-      (.put (KeyStroke/getKeyStroke "control Y") "paste-recording"))
+      (.put (KeyStroke/getKeyStroke "control Y") "paste-recording")
+      (.put (KeyStroke/getKeyStroke "shift LEFT") "shift-left")
+      (.put (KeyStroke/getKeyStroke "shift RIGHT") "shoft-right"))
 
     (doto (.getActionMap editor)
       (.put "save-clip"
@@ -499,7 +507,15 @@
                             80)
                           (clip/parse-clip (.getText editor)))]
                   (.setText editor (second (clip/as-str cl)))
-                  (save-clip editor add-player-clip false))))))
+                  (save-clip editor add-player-clip false)))))
+      (.put "shift-left"
+            (proxy [AbstractAction] []
+              (actionPerformed [^ActionEvent e]
+                )))
+      (.put "shift-right"
+            (proxy [AbstractAction] []
+              (actionPerformed [^ActionEvent e]
+                ))))
 
     (doto pane
       (.setPreferredSize (Dimension. 800 500)))
