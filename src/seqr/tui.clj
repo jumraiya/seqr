@@ -4,7 +4,7 @@
             [seqr.clip :as clip]
             [seqr.midi :as midi]
             [seqr.connections :as conn])
-  (:import (javax.swing JFileChooser JTextPane JFrame JTextField JScrollPane JLabel JTable JPanel BoxLayout AbstractAction KeyStroke JComponent BorderFactory)
+  (:import (javax.swing JButton JFileChooser JTextPane JFrame JTextField JScrollPane JLabel JTable JPanel BoxLayout AbstractAction KeyStroke JComponent BorderFactory)
            (javax.swing.text DefaultHighlighter$DefaultHighlightPainter StyleContext$NamedStyle StyleConstants)
            (javax.swing.border LineBorder)
            (javax.swing.filechooser FileSystemView)
@@ -268,7 +268,8 @@
                      (.add (JLabel. "Div"))
                      (.add player-div)
                      (.add (JLabel. "BPM"))
-                     (.add player-bpm)
+                     (.add (doto player-bpm (.setEditable true)))
+                     (.add (JButton. "Set"))
                      (.add (JLabel. "Point"))
                      (.add player-point)
                      (.add (JLabel. "Recording?"))
@@ -355,20 +356,40 @@
                        (toggle-player)
                        (swap! tui-state assoc :in-player [])))
         play-clip (proxy [AbstractAction] []
-                     (actionPerformed [^ActionEvent e]
-                       (toggle-player {:play-once? true :run? false})
-                       (save-clip editor add-player-clip true)
-                       (update-player-state [:run?] true)))
+                    (actionPerformed [^ActionEvent e]
+                      (toggle-player {:play-once? true :run? false})
+                      (save-clip editor add-player-clip true)
+                      (update-player-state [:run?] true)))
         add-new-clip (proxy [AbstractAction] []
-                     (actionPerformed [^ActionEvent e]
-                       (.setText
-                        editor
-                        "{:args {} :outs {:sc seqr.sc/s-new} :eval seqr.sc/note :name new}")))
+                       (actionPerformed [^ActionEvent e]
+                         (.setText
+                          editor
+                          "{:args {} \n:outs {:sc seqr.sc/s-new}\n :eval seqr.sc/note\n :name new}")))
+        shift-clip (fn [direction]
+                     (let [locations (:clip-positions @tui-state)
+                           pos (.getCaretPosition editor)
+                           editing (:editing-clip @tui-state)
+                           cl (find-clip editing)
+                           [bar note] (some
+                                       (fn [[bar locs]]
+                                         (some
+                                          #(when (and (>= pos (-> % second first))
+                                                      (<= pos (-> % second second)))
+                                             [bar (first %)])
+                                          locs))
+                                       locations)]
+                       (when (and bar note cl)
+                         (let [point (helper/get-point bar note (:div cl))
+                               [_ new-clip] (clip/as-str
+                                             (if (= :left direction)
+                                               (clip/shift-left cl point)
+                                               (clip/shift-right cl point)))]
+                           (save-clip editor add-player-clip false new-clip)))))
         save-sketch (proxy [AbstractAction] []
-                      (actionPerformed [^ActionEvent e]                      
+                      (actionPerformed [^ActionEvent e]
                         (save-load-sketch editor group-titles clips false)))
         load-sketch (proxy [AbstractAction] []
-                      (actionPerformed [^ActionEvent e]                      
+                      (actionPerformed [^ActionEvent e]
                         (save-load-sketch editor group-titles clips true)))]
 
     (update-clip-data group-titles clips)
@@ -398,12 +419,12 @@
                                         ms-period (:ms-period (sched/get-job-info new))]
                                     (when point
                                       (let [[bar note] (helper/get-pos point div)]
-                                          (when-let [[start end] (get-in @tui-state [:clip-positions bar note])]
-                                            (doto (.getStyledDocument editor)
-                                              (.setCharacterAttributes start (- end start) active-action true))
-                                            (sched/schedule-task
-                                             #(.setCharacterAttributes (.getStyledDocument editor) start (- end start) (nth action-styles note) true)
-                                             ms-period))))
+                                        (when-let [[start end] (get-in @tui-state [:clip-positions bar note])]
+                                          (doto (.getStyledDocument editor)
+                                            (.setCharacterAttributes start (- end start) active-action true))
+                                          (sched/schedule-task
+                                           #(.setCharacterAttributes (.getStyledDocument editor) start (- end start) (nth action-styles note) true)
+                                           ms-period))))
 
                                     (sched/schedule-task
                                      #(doseq [c clip-cells]
@@ -423,15 +444,15 @@
                      (when (and f (-> outs empty? not) msg)
                        (let [action (f msg cl)]
                          (when (contains? action :action)
-                             (doseq [[dest out-fn] outs]
-                               (conn/send! dest
-                                           (-> action
-                                               (merge args)
-                                               eval
-                                               out-fn)))))))
+                           (doseq [[dest out-fn] outs]
+                             (conn/send! dest
+                                         (-> action
+                                             (merge args)
+                                             eval
+                                             out-fn)))))))
                    (catch Exception e
                      (prn e)))))
-    
+
     (swap! tui-state assoc :selected [0 0])
     (.grabFocus editor)
 
@@ -476,8 +497,8 @@
       (.put (KeyStroke/getKeyStroke "control A") "add-clip")
       (.put (KeyStroke/getKeyStroke "control R") "toggle-recording")
       (.put (KeyStroke/getKeyStroke "control Y") "paste-recording")
-      (.put (KeyStroke/getKeyStroke "shift LEFT") "shift-left")
-      (.put (KeyStroke/getKeyStroke "shift RIGHT") "shoft-right"))
+      (.put (KeyStroke/getKeyStroke "shift control LEFT") "shift-left")
+      (.put (KeyStroke/getKeyStroke "shift control RIGHT") "shift-right"))
 
     (doto (.getActionMap editor)
       (.put "save-clip"
@@ -511,11 +532,11 @@
       (.put "shift-left"
             (proxy [AbstractAction] []
               (actionPerformed [^ActionEvent e]
-                )))
+                (shift-clip :left))))
       (.put "shift-right"
             (proxy [AbstractAction] []
               (actionPerformed [^ActionEvent e]
-                ))))
+                (shift-clip :right)))))
 
     (doto pane
       (.setPreferredSize (Dimension. 800 500)))
