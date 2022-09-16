@@ -10,7 +10,7 @@
            (javax.swing.filechooser FileSystemView)
            (javax.swing.table AbstractTableModel TableCellRenderer)
            (java.awt Dimension BorderLayout Font Color FlowLayout)
-           (java.awt.event KeyListener KeyEvent ActionEvent)
+           (java.awt.event KeyListener KeyEvent ActionEvent ActionListener)
            (seqr.tui ClipRenderer)))
 
 (declare save-clip)
@@ -66,10 +66,13 @@
         (recur (inc t) (rest g))))))
 
 
-(defn load-sketch [path editor clip-groups clips]
+(defn load-sketch [path editor clip-groups clips bpm-box]
   (try
-    (let [sketch-clips (read-string (slurp path))]
-      (doseq [[name text] sketch-clips]
+    (let [{:keys [bpm] :as sketch-clips} (read-string (slurp path))]
+      (when (and bpm-box bpm)
+        (.setText bpm-box (str bpm))
+        (swap! tui-state assoc :bpm bpm))
+      (doseq [[name text] (dissoc sketch-clips :bpm)]
         (let [cl (assoc (clip/parse-clip text) :name name)]
           (save-clip editor nil false text)
           (update-clip-data clip-groups clips))))
@@ -83,13 +86,14 @@
                     (reduce
                      #(assoc %1 (first %2) (second (clip/as-str (second %2))))
                      sketch clips))
-                  {} (:clips @tui-state))]
+                  {} (:clips @tui-state))
+          sketch (assoc sketch :bpm (:bpm @tui-state))]
       (spit path (str sketch)))
     (catch Exception e
       (prn "Error saving sketch" e))))
 
 
-(defn save-load-sketch [editor clip-groups clips load?]
+(defn save-load-sketch [editor clip-groups clips load? & [bpm-box]]
   (let [chooser (JFileChooser. (.getHomeDirectory (FileSystemView/getFileSystemView)))
         res (if load?
               (.showOpenDialog chooser editor)
@@ -99,7 +103,7 @@
                       (.getSelectedFile)
                       (.getAbsolutePath))]
         (if load?
-          (load-sketch path editor clip-groups clips)
+          (load-sketch path editor clip-groups clips bpm-box)
           (save-sketch path))))))
 
 
@@ -269,7 +273,16 @@
                      (.add player-div)
                      (.add (JLabel. "BPM"))
                      (.add (doto player-bpm (.setEditable true)))
-                     (.add (JButton. "Set"))
+                     (.add (doto
+                            (JButton. "Set")
+                             (.addActionListener
+                              (proxy [ActionListener] []
+                                (actionPerformed [^ActionEvent e]
+                                  (try
+                                    (let [bpm (Integer/parseInt (.getText player-bpm))]
+                                      (swap! tui-state assoc :bpm bpm)
+                                      (update-player-state :bpm bpm))
+                                    (catch Exception e)))))))
                      (.add (JLabel. "Point"))
                      (.add player-point)
                      (.add (JLabel. "Recording?"))
@@ -299,7 +312,8 @@
                         (try
                           (.setText player-size (str (:size state)))
                           (.setText player-div (str (:div state)))
-                          (.setText player-bpm (str (:bpm state)))
+                          (when (:bpm state)
+                            (.setText player-bpm (str (:bpm state))))
                           (let [groups (reduce
                                         (fn [groups [name data]]
                                           (update groups
@@ -353,13 +367,15 @@
                              (rm-player-clip name)))))
         start-stop (proxy [AbstractAction] []
                      (actionPerformed [^ActionEvent e]
-                       (toggle-player)
+                       (toggle-player {:bpm (:bpm @tui-state)})
                        (swap! tui-state assoc :in-player [])))
         play-clip (proxy [AbstractAction] []
                     (actionPerformed [^ActionEvent e]
-                      (toggle-player {:play-once? true :run? false})
+                      (toggle-player {:play-once? true
+                                      :run? false
+                                      :bpm (:bpm @tui-state)})
                       (save-clip editor add-player-clip true)
-                      (update-player-state [:run?] true)))
+                      (update-player-state :run? true)))
         add-new-clip (proxy [AbstractAction] []
                        (actionPerformed [^ActionEvent e]
                          (.setText
@@ -390,7 +406,7 @@
                         (save-load-sketch editor group-titles clips false)))
         load-sketch (proxy [AbstractAction] []
                       (actionPerformed [^ActionEvent e]
-                        (save-load-sketch editor group-titles clips true)))]
+                        (save-load-sketch editor group-titles clips true player-bpm)))]
 
     (update-clip-data group-titles clips)
 

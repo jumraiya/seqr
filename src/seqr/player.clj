@@ -46,6 +46,19 @@
    (conn/send! :sc-gated (seqr.sc/stop-gated {}))
    (swap! player-states dissoc id)))
 
+(defn is-running?
+  ([]
+   (is-running? @player))
+  ([id]
+   (sched/is-job-running? id)))
+
+(defn update-player [k val]
+  (when (is-running? @player)
+    (when (= k :bpm)
+      (let [period (helper/calc-period val (get-in @player-states [@player :div]))]
+        (sched/stop-job @player)
+        (sched/start-job period play @player)))
+    (swap! player-states assoc-in (concat [@player k]) val)))
 
 (defn set-bpm
   ([bpm]
@@ -59,12 +72,6 @@
 
 (defn set-running [val]
   (swap! player-states assoc-in [@player :run?] val))
-
-(defn is-running?
-  ([]
-   (is-running? @player))
-  ([id]
-   (sched/is-job-running? id)))
 
 (defn toggle-player [& [args]]
   (if (is-running? @player)
@@ -184,9 +191,6 @@
               (swap! player-states assoc-in key new-data))))))
     (catch Exception e
       (prn "Error updating player buffer" player-id e))))
-
-(defn update-player [ks val]
-  (swap! player-states assoc-in (concat [@player] ks) true))
 
 (defn ui []
   (tui/create-tui player player-states toggle-player add-clip rm-clip update-player))
