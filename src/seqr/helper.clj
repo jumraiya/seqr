@@ -59,7 +59,8 @@
   "Given a bpm, division and size of a sequencer, calculate period in ms"
   (/ 60000 bpm div))
 
-(defn- crawl [f l]
+(defn- crawl
+  [f l]
     (map #(if (coll? %)
             (let [l2 (crawl f %)]
                 (if (vector? %)
@@ -67,10 +68,14 @@
                   l2))
             (f %))
          l))
-  
+
+(defn replace-syms [syms xform]
+  "Recursively go through an xform, replacing symbols using the given lookup map"
+  (crawl #(or (get syms %) %) xform))
+
 (defmacro wrap-xform-in-fn [args xform]
   (let [arg-syms (into {} (map #(vector % (gensym)) args))
         args (vals arg-syms)
-        xform (crawl #(or (get arg-syms %) %) xform)]
+        xform (replace-syms arg-syms xform)]
     `(fn [~@args]
        ~xform)))

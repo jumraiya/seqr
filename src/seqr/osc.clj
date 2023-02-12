@@ -91,30 +91,37 @@
        (.substring text (.length match)))]))
 
 
-#_(defn mk-fn [template]
+(defmacro builder [template]
   (let [[url text] (next-token template)
         url (:val url)
-        osc-msg (osc-msg url)
-        xforms (loop [xforms [] text text]
-                 (let [[data text] (next-token text)
-                       t (:type data)
-                       v (:val data)
-                       [k d] (if (= t t-param)
-                               v [nil nil])
-                       m (condp = t
-                           t-int    (list `push-int v)
-                           t-float  (list `push-float v)
-                           t-word   (list `push-string v)
-                           t-param  (list `push-val
-                                      (if (contains? args k)
-                                        (get args k)
-                                        (or d -666))))]
-                   (if text
-                     (recur (conj xforms m) text)
-                     xforms)))]
-    (helper/wrap-xform-in-fn [args] (concat (list '-> 'args) xforms))))
+        ops (loop [ops [] text text]
+              (let [[data text] (next-token text)
+                    t (:type data)
+                    v (:val data)
+                    [k d] (if (= t t-param)
+                            v [nil nil])
+                    op (condp = t
+                         t-int    `(push-int ~v)
+                         t-float  `(push-float ~v)
+                         t-word   `(push-string ~v)
+                         t-param  `(push-val (get data ~k (or ~d -666)))
+                         t-spread `(reduce
+                                    #(push-val %1 %2)
+                                    (get data ~v [])))]
+                (if text
+                  (recur (conj ops op) text)
+                  (conj ops op `(get-packet)))))
+        data-sym (gensym)
+        msg-sym (gensym)
+        xargs {`data data-sym `msg msg-sym}
+        ops (mapv #(helper/replace-syms xargs %) ops)]
+      `(fn [~data-sym]
+         (let [~msg-sym (osc-msg ~url)]
+           (-> ~msg-sym
+            ~@ops)))
+      ))
 
-(defn builder [template]
+#_(defn builder [template]
   "Usage (builder \"/s_new ?node-id:-1 ?target:0\" {:target 22})"
   (let [[url text] (next-token template)
         url (:val url)
