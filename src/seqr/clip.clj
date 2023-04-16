@@ -354,9 +354,17 @@
 (defn shift-right [{:keys [div point] :as clip} at]
   (reduce
    (fn [cl p]
-     (let [to (get-pos (inc p) div)
-           action (get-in clip (get-pos p div))]
+     (let [from (get-pos p div)
+           to (get-pos (inc p) div)
+           action (get-in clip from)
+           ;; need to bump point if moving action at the end
+           cl (if (and (= (inc p) point)
+                       action)
+                (update cl :point inc)
+                cl)]
        (if action
-         (assoc-in cl to action)
-         (update cl (first to) dissoc (second to)))))
-   clip (range at -1 -1)))
+         (-> cl
+             (assoc-in to action)
+             (update (first from) dissoc (second from)))
+         cl)))
+   clip (range (dec point) (dec at) -1)))

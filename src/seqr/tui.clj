@@ -373,14 +373,19 @@
                     (actionPerformed [^ActionEvent e]
                       (toggle-player {:play-once? true
                                       :run? false
-                                      :bpm (:bpm @tui-state)})
+                                      :bpm (or (:bpm @tui-state) 80)})
                       (save-clip editor add-player-clip true)
                       (update-player-state :run? true)))
         add-new-clip (proxy [AbstractAction] []
                        (actionPerformed [^ActionEvent e]
                          (.setText
                           editor
-                          "{:args {} \n:outs {:sc seqr.sc/s-new}\n :eval seqr.sc/note\n :name new}")))
+                          "{:args {:synth sin} \n:outs {:sc seqr.sc/s-new}\n :eval seqr.sc/note\n :name new}")))
+        add-new-gated-clip (proxy [AbstractAction] []
+                       (actionPerformed [^ActionEvent e]
+                         (.setText
+                          editor
+                          "{:args {:synth sin :gated 1} \n:outs {:sc-gated seqr.sc/s-new}\n :eval seqr.sc/note\n :name new}")))
         shift-clip (fn [direction]
                      (let [locations (:clip-positions @tui-state)
                            pos (.getCaretPosition editor)
@@ -481,6 +486,7 @@
                                  ["control alt UP" "switch-focus-up" (move-select "up")]
                                  ["control alt DOWN" "switch-focus-down" (move-select "down")]
                                  ["control alt N" "add-new-clip" add-new-clip]
+                                 ["control alt G" "add-new-gated-clip" add-new-gated-clip]
                                  ["control P" "play-clip" play-clip]
                                  ["control alt O" "load-sketch" load-sketch]
                                  ["control alt S" "save-sketch" save-sketch]

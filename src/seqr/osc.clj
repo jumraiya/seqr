@@ -54,6 +54,9 @@
     java.lang.String (push-string msg val)
     clojure.lang.Keyword (push-string msg (name val))))
 
+(defn push-vals [msg values]
+  (reduce #(push-val %1 %2) msg values))
+
 (defn osc-msg [^String url]
   {:url url
    :tags [(byte \,)]
@@ -94,6 +97,8 @@
 (defmacro builder [template]
   (let [[url text] (next-token template)
         url (:val url)
+        data-sym (gensym)
+        msg-sym (gensym)
         ops (loop [ops [] text text]
               (let [[data text] (next-token text)
                     t (:type data)
@@ -105,21 +110,17 @@
                          t-float  `(push-float ~v)
                          t-word   `(push-string ~v)
                          t-param  `(push-val (get data ~k (or ~d -666)))
-                         t-spread `(reduce
-                                    #(push-val %1 %2)
-                                    (get data ~v [])))]
+                         t-spread `(push-vals (get data ~v [])))]
                 (if text
                   (recur (conj ops op) text)
                   (conj ops op `(get-packet)))))
-        data-sym (gensym)
-        msg-sym (gensym)
         xargs {`data data-sym `msg msg-sym}
         ops (mapv #(helper/replace-syms xargs %) ops)]
-      `(fn [~data-sym]
-         (let [~msg-sym (osc-msg ~url)]
-           (-> ~msg-sym
-            ~@ops)))
-      ))
+    `(fn [~data-sym]
+       (let [~msg-sym (osc-msg ~url)]
+         (-> ~msg-sym
+             ~@ops)))
+    ))
 
 #_(defn builder [template]
   "Usage (builder \"/s_new ?node-id:-1 ?target:0\" {:target 22})"

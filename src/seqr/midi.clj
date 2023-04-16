@@ -30,16 +30,17 @@
 
 (defn toggle-recording
   ([start?]
-   (toggle-recording start? "loopMIDI"))
+   (toggle-recording start? "loopMIDI Port"))
   ([start? device-name]
    (when start?
      (send midi-buffer (fn [buf] [])))
    (when-let [device (find-device device-name)]
      (if (not (.isOpen device))
        (.open device))
-     
      (if start?
-       (.setReceiver (.getTransmitter device) record-message)
+       (do
+         (.setReceiver (.getTransmitter device) record-message)
+         (prn "Listening to " device))
        (doseq [t (.getTransmitters device)]
          (.setReceiver t nil))))))
 
