@@ -43,7 +43,7 @@
    (stop-player @player))
   ([id]
    (sched/stop-job id)
-   (conn/send! :sc-gated (seqr.sc/stop-gated {}))
+   (conn/send! :sc-lang (seqr.sc/stop-gated {}))
    (swap! player-states dissoc id)))
 
 (defn is-running?

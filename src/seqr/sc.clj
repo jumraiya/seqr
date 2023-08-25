@@ -13,6 +13,8 @@
 (def stop-gated
   (osc/builder "/stop_gated 0"))
 
+(def eval-sc-code (osc/builder "/eval_code ?code"))
+
 (defn note [{:keys [action synth] :as data}]
   (let [n (mu/note action)
         freq (mu/midi->hz n)
@@ -45,3 +47,4 @@
          ret)
        ret))))
 
+;(defn )

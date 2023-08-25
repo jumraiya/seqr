@@ -8,7 +8,7 @@
 
 (conn/add-destination! "localhost" 57110 :sc)
 
-(conn/add-destination! "localhost" 57120 :sc-gated)
+(conn/add-destination! "localhost" 57120 :sc-lang)
 
 (comment
   (player/ui)

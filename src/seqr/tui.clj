@@ -212,7 +212,12 @@
 (defn save-clip [^JTextPane editor player-add-clip add? & [text]]
   (try
     (let [text (or text (.getText editor))
-          cl (clip/parse-clip text)
+          {:keys [outs args] :as cl} (clip/parse-clip text)
+          dests (-> outs keys set)
+          ;; cl (if (or (contains? dests :sc)
+          ;;            (contains? dests :sc-lang))
+          ;;      ;; Try to get the synthdef args
+          ;;      )
           [positions text] (clip/as-str cl)
           name (:name cl)
           old-groups (map first (filter #(contains? (second %) name) (:clips @tui-state)))
@@ -385,7 +390,7 @@
                        (actionPerformed [^ActionEvent e]
                          (.setText
                           editor
-                          "{:args {:synth sin :gated 1} \n:outs {:sc-gated seqr.sc/s-new}\n :eval seqr.sc/note\n :name new}")))
+                          "{:args {:synth sin :gated 1} \n:outs {:sc-lang seqr.sc/s-new}\n :eval seqr.sc/note\n :name new}")))
         shift-clip (fn [direction]
                      (let [locations (:clip-positions @tui-state)
                            pos (.getCaretPosition editor)
