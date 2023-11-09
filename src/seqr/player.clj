@@ -8,7 +8,9 @@
 
 (defonce ^:private player (atom nil))
 
-(defonce ^:private player-states (atom {}))
+;;(defonce ^:private player-states (atom {}))
+
+(defonce ^:private state (atom {}))
 
 (declare play)
 
@@ -18,18 +20,21 @@
 
 (declare update-dynamic)
 
-(sched/start-sched)
+;; (sched/start-sched)
 
 (defn get-player [& {:keys [div bpm size paused? play-once? run? id]
                      :or {div 4 bpm 80 size 4 paused? false play-once? false run? true}
                      :as options}]
   "Create a player instance which is essentially a scheduled job in the pool"
   (let [period (helper/calc-period bpm div)
-        state {:div div :bpm bpm :size size :clips {} :buffer {} :point (ref 1) :play-once? play-once? :run? run?}
-        player-id (if id
-                    (sched/start-job period play id)
-                    (sched/start-job period play))]
-    (swap! player-states assoc player-id state)
+        ;;state {:div div :bpm bpm :size size :clips {} :buffer {} :point (ref 1) :play-once? play-once? :run? run?}
+        new-state {:div div :bpm bpm :size size :clips {} :buffer {} :point (ref 1) :play-once? play-once? :run? run?}
+        ;; player-id (if id
+        ;;             (sched/start-job period play id)
+        ;;             (sched/start-job period play))
+        ]
+    ;;(swap! player-states assoc player-id state)
+    (reset! state new-state)
     player-id))
 
 (defn start-player [& {:keys [div bpm size] :or {div 4 bpm 80 size 4} :as options}]
