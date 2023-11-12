@@ -251,7 +251,7 @@
                          "\n\n")]
 
     (.append text options-str)
-    (loop [positions {} offset (.length options-str) p 1]
+    (loop [positions [] offset (.length options-str) p 1]
       (let [[bar note] (get-pos p div)
             has-action? (-> clip (get-in [bar note]) empty? not)
             s (str
@@ -260,7 +260,7 @@
                  "|\n\n"))
             end (+ offset (.length s))
             positions (if has-action?
-                        (assoc-in positions [bar note] [offset end])
+                        (conj positions [bar note] [offset end])
                         positions)]
         (.append text s)
         (if (< p (dec point))

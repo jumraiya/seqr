@@ -25,6 +25,10 @@
     (StyleConstants/setBackground Color/BLACK)
     (StyleConstants/setForeground Color/GREEN)))
 
+(defonce cur-editor (atom nil))
+
+(defonce cur-clip (atom nil))
+
 (defn create-editor [state]
   (let [editor (doto (JTextPane.)
                  (.setBackground Color/BLACK)
@@ -33,6 +37,7 @@
                  (.setEditable true)
                  (.setBorder (LineBorder. Color/YELLOW 3))
                  (.setFont (Font. "Monospaced" Font/PLAIN 14)))
+        _ (reset! cur-editor editor)
         pane (doto (JScrollPane. editor)
                (.setPreferredSize (Dimension. 800 500)))]
     (add-styles editor)
@@ -40,7 +45,29 @@
 
 (defn set-clip [editor clip]
   (try
-    (let [text (clip/as-str clip)]
-      (.setText editor text))
+    (let [[positions text] (clip/as-str clip)]
+      (.setText editor text)
+      (reset! cur-clip {:pos (into []
+                                   (comp (map second) (mapcat vals))
+                                   positions)
+                        :clip clip}))
     (catch Exception e
       (prn "Error setting editor content" e))))
+
+(defn highlight-action [editor clip point]
+  (when (<= point (count (:pos clip)))
+    (let [[start end] pos
+          doc (.getStyledDocument editor)
+          active-action (.getStyle doc "active-action")
+          default (.getStyle doc "editor-default")] 
+      (.setCharacterAttributes doc start (- end start) active-action true)
+      (future
+        (Thread/sleep 300)
+        (.setCharacterAttributes doc  start (- end start) default true)))))
+
+(comment
+  
+  (def cl (clip/parse-clip "a :2 b"))
+
+  (set-clip @cur-editor cl)
+  (highlight-action @cur-editor @cur-clip 4))
