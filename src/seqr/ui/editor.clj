@@ -47,15 +47,13 @@
   (try
     (let [[positions text] (clip/as-str clip)]
       (.setText editor text)
-      (reset! cur-clip {:pos (into []
-                                   (comp (map second) (mapcat vals))
-                                   positions)
+      (reset! cur-clip {:pos positions
                         :clip clip}))
     (catch Exception e
       (prn "Error setting editor content" e))))
 
-(defn highlight-action [editor clip point]
-  (when (<= point (count (:pos clip)))
+(defn highlight-action [editor clip pos]
+  (when-some (get-in clip pos)
     (let [[start end] pos
           doc (.getStyledDocument editor)
           active-action (.getStyle doc "active-action")
