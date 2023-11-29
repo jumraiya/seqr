@@ -2,7 +2,10 @@
   (:require
    [seqr.ui.editor :as editor])
   (:import (javax.swing JFrame)
-           (java.awt BorderLayout)))
+           (java.awt BorderLayout)
+           (com.formdev.flatlaf FlatDarkLaf)))
+
+(FlatDarkLaf/setup)
 
 (defonce ^:private ui-frame (atom nil))
 
@@ -25,3 +28,6 @@
       (.pack)
       (.setVisible true))
     (reset! ui-frame frame)))
+
+(comment
+  (create-ui))

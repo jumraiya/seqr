@@ -190,7 +190,7 @@
       t-brace-open (add-params token text clip group? after-group?)
       t-eof clip)))
 
-(defn as-str [{:keys [div args point] :as clip}]
+(defn as-str [{:keys [div args point] :as clip} & {:keys [exclude-preamble?]}]
   (let [text (StringBuilder.)
         mk-action-str (fn [actions]
                         (let [multi-action? (> (count actions) 1)
@@ -249,9 +249,9 @@
                              (clojure.string/replace "," "\n")
                              (clojure.string/replace "\"" ""))
                          "\n\n")]
-
-    (.append text options-str)
-    (loop [positions [] offset (.length options-str) p 1]
+    (when-not exclude-preamble?
+        (.append text options-str))
+    (loop [positions {} offset (.length options-str) p 1]
       (let [[bar note] (get-pos p div)
             has-action? (-> clip (get-in [bar note]) empty? not)
             s (str
@@ -260,7 +260,7 @@
                  "|\n\n"))
             end (+ offset (.length s))
             positions (if has-action?
-                        (conj positions [bar note] [offset end])
+                        (assoc-in positions [bar note] [offset end])
                         positions)]
         (.append text s)
         (if (< p (dec point))
