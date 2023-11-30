@@ -2,13 +2,13 @@
   (:require [clojure.string :as str])
   (:import
    (java.awt.event ComponentListener ComponentEvent)
-   (javax.swing JComboBox JTextPane JScrollPane JSplitPane JTable JList JTextField DefaultCellEditor)
-   (javax.swing.table AbstractTableModel DefaultTableCellRenderer TableCellEditor)
+   (javax.swing JComboBox JTextPane JScrollPane JSplitPane JTable JList JTextField DefaultCellEditor JLabel)
+   (javax.swing.table AbstractTableModel DefaultTableCellRenderer TableCellEditor TableCellRenderer)
    (javax.swing.text DefaultHighlighter$DefaultHighlightPainter StyleContext$NamedStyle StyleConstants)
    (javax.swing.border LineBorder)
    (javax.swing.event TableModelListener TableModelEvent)
    (java.awt BorderLayout Color Font Dimension)
-   (java.awt.event ItemListener ItemEvent)))
+   (java.awt.event ItemListener ItemEvent FocusListener)))
 
 (def CELL-MAX-WIDTH 20)
 
@@ -20,6 +20,12 @@
   [:dest :interpreter :div])
 
 (defonce grid-map (atom {}))
+
+(defn- set-column-sizes [table]
+  (doseq [c (range (.getColumnCount table))]
+    (when-let [w (get @grid-map [:max-len c])]
+      (.setMinWidth (.getColumn (.getColumnModel table) c) w)))
+  (.doLayout table))
 
 (defn- build-grid-map [clip container-width]
   (loop [grid-map {}
@@ -65,7 +71,9 @@
                (if (contains? (set default-properties) prop)
                  [:data prop]
                  [:data :args prop])
-               val)))
+               (if (re-matches #"[\d\.]+" val)
+                 (Float/parseFloat val)
+                 val))))
     (isCellEditable [row col]
       (odd? col))))
 
@@ -83,7 +91,8 @@
     (componentResized [this e]
       (reset! grid-map
               (build-grid-map @clip (.getWidth table)))
-      (.fireTableStructureChanged config-model))
+      (.fireTableStructureChanged config-model)
+      (set-column-sizes table))
     (componentShown [this e])))
 
 (defn- mk-list-listener [prop clip-atom config-model]
@@ -109,18 +118,40 @@
        (condp = (get @grid-map [row (dec col)])
          "dest" (mk-list-selector "dest" destinations clip-atom config-model)
          "interpreter" (mk-list-selector "interpreter" interpreters clip-atom config-model)
-         (proxy-super getCellEditor row col)))
-      )))
+         (proxy-super getCellEditor row col))))
+    (getCellRenderer [row col]
+      (reify TableCellRenderer
+        (getTableCellRendererComponent [this table value isSelected hasFocus row col]
+          (let [f (JLabel. value)]
+            (when hasFocus
+              (.setBorder f (LineBorder. Color/YELLOW 2)))            
+            f))))
+    ))
 
 (defn build-table [clip-atom ^JSplitPane container-pane destinations interpreters]
   (let [_ (reset! grid-map (build-grid-map @clip-atom (.getWidth container-pane)))
         model (config-model clip-atom)
-        table (build-config-table clip-atom destinations interpreters model)
+        table (doto (build-config-table clip-atom destinations interpreters model)
+                (.addFocusListener
+                 (reify FocusListener
+                   (focusGained [this e]
+                     (when-let [scroll-pane (.getParent (.getParent (.getSource e)))]
+                       (.setBorder scroll-pane (LineBorder. Color/YELLOW 2))))
+                   (focusLost [this e]
+                     (when-let [scroll-pane (cond-> e
+                                              some? (.getSource)
+                                              some? (.getParent)
+                                              some? (.getParent))]
+                       (.setBorder scroll-pane nil))))))
         _ (watch clip-atom container-pane table)
         _ (.addComponentListener container-pane (on-container-resize clip-atom table model))
         table (doto table
                 (.setTableHeader nil)
+                ;(.setShowGrid true)
+                (.setAutoResizeMode JTable/AUTO_RESIZE_OFF)
                 (.setModel model)
-                (.setFont (Font. "Monospaced" Font/PLAIN FONT-SIZE)))]
+                (.setFont (Font. "Monospaced" Font/PLAIN FONT-SIZE))
+                (.setGridColor Color/WHITE))
+        _ (set-column-sizes table)]
     (JScrollPane. table)))
 

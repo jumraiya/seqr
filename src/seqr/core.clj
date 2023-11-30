@@ -17,11 +17,11 @@
 (defn register-serializer [key f]
   (swap! serializers assoc key f))
 
-(doseq [[k f] (ns-publics 'seqr.interpreters)]
-  (register-interpreter (name k) f))
+;; (doseq [[k f] (ns-publics 'seqr.interpreters)]
+;;   (register-interpreter (name k) f))
 
-(doseq [[k f] (ns-publics 'seqr.serializers)]
-  (register-serializer (name k) f))
+;; (doseq [[k f] (ns-publics 'seqr.serializers)]
+;;   (register-serializer (name k) f))
 
 (conn/add-destination! "localhost" 57110 :sc)
 

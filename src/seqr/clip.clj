@@ -159,7 +159,6 @@
 (defn- eval-clj [str]
   (eval (read-string str)))
 
-
 (defn- add-action [token text {:keys [eval point div args] :or {args {}} :as clip} group?]
   (let [pos (get-pos point div)
         after-group? (= t-bracket-close (:type token))
@@ -171,12 +170,10 @@
                                               [false nil text nil])
         clip (cond-> clip
                is-action? (update-in pos #(conj (vec %) (merge args {:action action :action-str action-str})))
-               (= (:type token) t-paren-open)(update :dynamic conj point))
+               (= (:type token) t-paren-open) (update :dynamic conj point))
         [token text] (next-token text)
         clip (update clip :point (if (or group?
-                                         (= t-brace-open (:type token))
-                                         #_(and after-group?
-                                                (= t-brace-open (:type token))))
+                                         (= t-brace-open (:type token)))
                                    identity
                                    inc))]
     (condp = (:type token)
@@ -229,11 +226,11 @@
                                    (if (< p point)
                                      (recur actions lens (inc p) (if has-action? p last-action))
                                      [actions lens])))
-        pad-str #(str (get action-strs % " ")
-                      #_(apply str (repeat (- (get col-lens
-                                                 (second (get-pos % div)) 1)
-                                            (.length (get action-strs % " ")))
-                                           " ")))
+        ;; pad-str #(str (get action-strs % " ")
+        ;;               (apply str (repeat (- (get col-lens
+        ;;                                          (second (get-pos % div)) 1)
+        ;;                                     (.length (get action-strs % " ")))
+        ;;                                    " ")))
         fn-to-str #(str (-> % meta :ns) "/" (-> % meta :name))
         options (into {} (map (fn [[k v]]
                                 (when (and (not (number? k))
@@ -254,17 +251,19 @@
     (loop [positions {} offset (.length options-str) p 1]
       (let [[bar note] (get-pos p div)
             has-action? (-> clip (get-in [bar note]) empty? not)
-            s (str
-               (pad-str p) " "
-               (if (= div note)
-                 "|\n\n"))
+            s  (get action-strs p " ") ;(pad-str p)
+            padded-s (str
+                      s " "
+                      (if (= div note)
+                        "|\n\n"))
             end (+ offset (.length s))
             positions (if has-action?
                         (assoc-in positions [bar note] [offset end])
-                        positions)]
-        (.append text s)
+                        positions)
+            offset (+ offset (.length padded-s))]
+        (.append text padded-s)
         (if (< p (dec point))
-          (recur positions end (inc p))
+          (recur positions offset (inc p))
           [positions (.toString text)])))))
 
 
