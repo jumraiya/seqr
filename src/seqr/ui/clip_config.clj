@@ -17,26 +17,20 @@
 (def FONT-SIZE 15)
 
 (def ^:private default-properties
-  [:dest :interpreter :div])
-
-(defonce grid-map (atom {}))
-
-(defn- set-column-sizes [table]
-  (doseq [c (range (.getColumnCount table))]
-    (when-let [w (get @grid-map [:max-len c])]
-      (.setMinWidth (.getColumn (.getColumnModel table) c) w)))
-  (.doLayout table))
+  [:name :dest :interpreter :div])
 
 (defn- build-grid-map [clip container-width]
   (loop [grid-map {}
          row 0 col 0
          props (into (mapv #(vector % (-> clip :data %)) default-properties)
-                     (into (sorted-map) (-> clip :data :args)))]
+                     (into (sorted-map) (-> clip :data :args)))
+         width 0]
     (let [[prop val] (first props)
           prop-width (max CELL-MIN-WIDTH (* FONT-SIZE (-> prop name count)))
           val-width  (min CELL-MAX-WIDTH (max CELL-MIN-WIDTH (* FONT-SIZE (-> val str count))))
           row-has-props? (some? (get grid-map [row 0]))
-          row        (if (and (< container-width (+ prop-width val-width))
+          new-width      (+ width prop-width val-width)
+          row        (if (and (< container-width new-width)
                               row-has-props?)
                        (inc row)
                        row)
@@ -50,74 +44,111 @@
                                                         val-width))
                        (assoc :num-rows (inc row)))]
       (if (not (empty? props))
-        (recur grid-map row (+ col 2) props)
+        (recur grid-map row (+ col 2) props new-width)
         grid-map))))
 
+(defn- set-column-sizes [clip-atom table]
+  (let [grid-map (build-grid-map @clip-atom (.getWidth table))]
+      (doseq [c (range (.getColumnCount table))]
+        (when-let [w (get grid-map [:max-len c])]
+          (.setMinWidth (.getColumn (.getColumnModel table) c) w))))
+  (.doLayout table))
 
-(defn- config-model [clip-atom]
+(defn- config-model [clip-atom table]
   (proxy [AbstractTableModel] []
     (getColumnCount []
-      (inc
-       (apply max
-              (->> @grid-map keys (filter vector?) (mapv second) (filter number?)))))
+      8
+      #_(let [grid-map (build-grid-map @clip-atom (.getWidth table))]
+          (inc
+           (apply max
+                  (->> grid-map keys (filter vector?) (mapv second) (filter number?))))))
     (getRowCount []
-      (:num-rows @grid-map))
+      (let [args (-> @clip-atom :data :args keys sort)]
+        (inc (int (Math/ceil (/ (* 2 (count args)) 8)))))
+      #_(let [grid-map (build-grid-map @clip-atom (.getWidth table))]
+          (:num-rows grid-map)))
     (getValueAt [row col]
-      (get @grid-map [row col]))
+      (let [args (flatten
+                  (into (mapv #(vector % (get-in @clip-atom [:data %])) default-properties)
+                        (->> @clip-atom :data :args (sort-by key))))
+            val (nth args (+ (* row 8) col) nil)]
+        (if (keyword? val)
+          (name val)
+          (str val)))
+      #_(let [grid-map (build-grid-map @clip-atom (.getWidth table))]
+          (get grid-map [row col])))
     (setValueAt [val row col]
-      (let [prop (keyword (get @grid-map [row (dec col)]))]
-        (swap! grid-map assoc [row col] val)
-        (swap! clip-atom assoc-in
-               (if (contains? (set default-properties) prop)
-                 [:data prop]
-                 [:data :args prop])
-               (if (re-matches #"[\d\.]+" val)
-                 (Float/parseFloat val)
-                 val))))
+      (let [args (flatten
+                  (into (mapv #(vector % (get-in @clip-atom [:data %])) default-properties)
+                        (->> @clip-atom :data :args (sort-by key))))
+            prop (nth args (+ (* row 8) (dec col)) nil)]
+        (when prop
+          (swap! clip-atom assoc-in
+                 (if (contains? (set default-properties) prop)
+                   [:data prop]
+                   [:data :args (name prop)])
+                 (cond
+                   (re-matches #"\d+" val) (Integer/parseInt val)
+                   (re-matches #"[\d\.]+" val) (Float/parseFloat val)
+                   :else val))))
+      
+      #_(let [grid-map (build-grid-map @clip-atom (.getWidth table))
+              prop (keyword (get grid-map [row (dec col)]))]
+          (swap! clip-atom assoc-in
+                 (if (contains? (set default-properties) prop)
+                   [:data prop]
+                   [:data :args (name prop)])
+                 (if (re-matches #"[\d\.]+" val)
+                   (Float/parseFloat val)
+                   val))))
     (isCellEditable [row col]
       (odd? col))))
 
 (defn- watch [clip container table]
   (add-watch clip :config-table
              (fn [key state old new]
-               (reset! grid-map
-                       (build-grid-map new (.getWidth container)))
+               ;; (.fireTableStructureChanged (.getModel table))
                )))
 
-(defn- on-container-resize [clip table config-model]
+(defn- on-container-resize [clip table]
   (reify ComponentListener
     (componentHidden [this e])
     (componentMoved [this e])
     (componentResized [this e]
-      (reset! grid-map
-              (build-grid-map @clip (.getWidth table)))
-      (.fireTableStructureChanged config-model)
-      (set-column-sizes table))
+      (.fireTableStructureChanged (.getModel table))
+      (set-column-sizes clip table))
     (componentShown [this e])))
 
-(defn- mk-list-listener [prop clip-atom config-model]
+(defn- mk-list-listener [prop clip-atom table]
   (reify ItemListener
     (itemStateChanged [this e]
       (when (= (.getStateChange e) ItemEvent/SELECTED)
-        (let [[[r c]] (first (filter #(= (second %) prop) @grid-map))]
-          (swap! grid-map assoc [r (inc c)] (.getItem e))
-          (swap! clip-atom assoc-in [:data (keyword prop)] (.getItem e))
-          (.fireTableDataChanged config-model))))))
+        (swap! clip-atom assoc-in [:data (keyword prop)] (.getItem e))
+        (.fireTableDataChanged (.getModel table))
+        #_(let [grid-map (build-grid-map @clip-atom (.getWidth table))
+                [[r c]] (first (filter #(= (second %) prop) grid-map))]
+            (swap! clip-atom assoc-in [:data (keyword prop)] (.getItem e))
+            (.fireTableDataChanged (.getModel table)))))))
 
-(defn- mk-list-selector [prop options clip-atom config-model]
+(defn- mk-list-selector [prop options clip-atom table]
   (DefaultCellEditor.
    (doto (JComboBox. (into-array options))
-     (.addItemListener (mk-list-listener prop clip-atom config-model)))))
+     (.addItemListener (mk-list-listener prop clip-atom table))
+     )))
 
-(defn- build-config-table [clip-atom destinations interpreters config-model]
+(defn- build-config-table [clip-atom destinations interpreters]
   (proxy [JTable] []
     (getCellEditor
       ([]
        (proxy-super getCellEditor))
       ([row col]
-       (condp = (get @grid-map [row (dec col)])
-         "dest" (mk-list-selector "dest" destinations clip-atom config-model)
-         "interpreter" (mk-list-selector "interpreter" interpreters clip-atom config-model)
+       (condp = [row col]
+         [0 3] (mk-list-selector "dest" destinations clip-atom this)
+         [0 5] (mk-list-selector "interpreter" interpreters clip-atom this)
+         (proxy-super getCellEditor row col))
+      #_(condp = (get @grid-map [row (dec col)])
+         "dest" (mk-list-selector "dest" destinations clip-atom this)
+         "interpreter" (mk-list-selector "interpreter" interpreters clip-atom this)
          (proxy-super getCellEditor row col))))
     (getCellRenderer [row col]
       (reify TableCellRenderer
@@ -125,33 +156,22 @@
           (let [f (JLabel. value)]
             (when hasFocus
               (.setBorder f (LineBorder. Color/YELLOW 2)))            
-            f))))
-    ))
+            f))))))
 
 (defn build-table [clip-atom ^JSplitPane container-pane destinations interpreters]
-  (let [_ (reset! grid-map (build-grid-map @clip-atom (.getWidth container-pane)))
-        model (config-model clip-atom)
-        table (doto (build-config-table clip-atom destinations interpreters model)
-                (.addFocusListener
-                 (reify FocusListener
-                   (focusGained [this e]
-                     (when-let [scroll-pane (.getParent (.getParent (.getSource e)))]
-                       (.setBorder scroll-pane (LineBorder. Color/YELLOW 2))))
-                   (focusLost [this e]
-                     (when-let [scroll-pane (cond-> e
-                                              some? (.getSource)
-                                              some? (.getParent)
-                                              some? (.getParent))]
-                       (.setBorder scroll-pane nil))))))
-        _ (watch clip-atom container-pane table)
-        _ (.addComponentListener container-pane (on-container-resize clip-atom table model))
+  (let [table (build-config-table clip-atom destinations interpreters)
+        model (config-model clip-atom table)
+        ;_ (watch clip-atom container-pane table)
+        ;_ (.addComponentListener container-pane (on-container-resize clip-atom table))
         table (doto table
                 (.setTableHeader nil)
                 ;(.setShowGrid true)
-                (.setAutoResizeMode JTable/AUTO_RESIZE_OFF)
+                ;(.setAutoResizeMode JTable/AUTO_RESIZE_OFF)
                 (.setModel model)
                 (.setFont (Font. "Monospaced" Font/PLAIN FONT-SIZE))
                 (.setGridColor Color/WHITE))
-        _ (set-column-sizes table)]
-    (JScrollPane. table)))
+        _ (set-column-sizes clip-atom table)]
+    (JScrollPane. table)
+    #_(doto (JScrollPane. table)
+      (.setHorizontalScrollBarPolicy JScrollPane/HORIZONTAL_SCROLLBAR_NEVER))))
 

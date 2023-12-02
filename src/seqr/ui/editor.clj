@@ -88,9 +88,16 @@
     (isCellEditable [row col]
       true)))
 
-(defn- add-keybindings [editor text table config-table]
+(defn- save-clip [ui-state]
+  (let [clip-pos (or (some #(when (= (:name (second %)) (-> @cur-clip :data :name))
+                              (first %))
+                           (map-indexed vector (:clips @ui-state)))
+                     (max 0 (count (:clips @ui-state))))]
+    (send ui-state assoc-in [:clips clip-pos] (:data @cur-clip))))
+
+(defn- add-keybindings [ui-state editor text table config-table]
   (doto (.getInputMap config-table)
-      (.put (KeyStroke/getKeyStroke "control DOWN") "focus-editor"))
+    (.put (KeyStroke/getKeyStroke "control DOWN") "focus-editor"))
   (doto (.getInputMap text)
     (.put (KeyStroke/getKeyStroke "control T") "toggle-table-mode"))
   (doto (.getInputMap table JComponent/WHEN_IN_FOCUSED_WINDOW)
@@ -119,7 +126,15 @@
       (.put "focus-config"
             (proxy [AbstractAction] []
               (actionPerformed [e]
-                (.requestFocusInWindow config-table)))))))
+                (.requestFocusInWindow config-table))))))
+  (doseq [c [text table config-table]]
+    (doto (.getInputMap c)
+      (.put (KeyStroke/getKeyStroke "control S") "save-clip"))
+    (doto (.getActionMap c)
+      (.put "save-clip"
+            (proxy [AbstractAction] []
+              (actionPerformed [e]
+                (save-clip ui-state)))))))
 
 (defn- mk-table-editor []
   (proxy [JTable] []
@@ -145,12 +160,12 @@
         _ (reset! clip-editor pane)
         config (clip-config/build-table
                 cur-clip pane ["dest1" "dest2"] ["note" "scale"])
-        _ (add-keybindings pane text-editor table-editor (.getView (.getViewport config)))
+        _ (add-keybindings state pane text-editor table-editor (.getView (.getViewport config)))
         split-pane (doto (JSplitPane. JSplitPane/VERTICAL_SPLIT true config pane)
                      (.setOneTouchExpandable true)
                      (.setDividerSize 10))]
     (add-styles text-editor)
-    split-pane))
+    [split-pane pane text-editor table-editor (.getView (.getViewport config))]))
 
 (defn highlight-action [editor clip pos]
   (when-some [offsets (get-in @cur-clip [:positions pos])]
@@ -164,6 +179,6 @@
         (.setCharacterAttributes doc  start (- end start) default true)))))
 
 (comment  
-  (def cl (clip/parse-clip "{:dest few :args {t 2}} a :2 b {t 1}"))
+  (def cl (clip/parse-clip "{:args {t 2 atk 0.01 a 2 b 3 g 3 r 12}} a :2 b {t 1}"))
   (set-clip cl)
   (highlight-action @clip-text-editor @cur-clip 4))
