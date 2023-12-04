@@ -146,6 +146,13 @@
                        (.setTableHeader nil)
                        (.addFocusListener focus-listener)
                        (.setFont (Font. "Monospaced" Font/PLAIN 14)))
+        _ (utils/add-key-action
+           table-editor "control E" "edit-action"
+           (let [r (.getSelectedRow table-editor)
+                 c (.getSelectedColumn table-editor)
+                 val (.getValueAt (.getModel table-editor) r c)]
+             (utils/show-text-input-dialog
+              (.getTopLevelAncestor (.getSource e)) "Edit" val #(.setValueAt (.getModel table-editor) % r c))))
         _ (reset! clip-table-editor table-editor)
         pane (doto (JScrollPane. text-editor)
                (.setPreferredSize (Dimension. 800 500)))

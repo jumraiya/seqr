@@ -3,7 +3,8 @@
    [seqr.helper :as helper])
   (:import
    (javax.swing AbstractAction JDialog KeyStroke JComponent JTextPane)
-   (java.awt Color Font Dimension)))
+   (java.awt Color Font Dimension)
+   (java.awt.event ActionListener)))
 
 (defmacro add-key-action-with-focus [component key action focus & body]
   (let [ev (gensym)
@@ -19,6 +20,16 @@
 
 (defmacro add-key-action [component key action & body]
   `(add-key-action-with-focus ~component ~key ~action JComponent/WHEN_FOCUSED ~@body))
+
+
+(defmacro add-action-listener [component & body]
+  (let [ev (gensym)
+        body (helper/replace-syms {'e ev} body)]
+    `(.addActionListener
+      ~component
+      (reify ActionListener
+        (actionPerformed [this ~ev]
+          ~@body)))))
 
 (defn text-pane []
   (doto (JTextPane.)

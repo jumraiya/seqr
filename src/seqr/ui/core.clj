@@ -2,7 +2,8 @@
   (:require
    [seqr.ui.editor :as editor]
    [seqr.ui.clip-table :as clip-table]
-   [seqr.ui.utils :as utils])
+   [seqr.ui.utils :as utils]
+   [seqr.ui.menu-bar :as menu-bar])
   (:import (javax.swing AbstractAction JComponent JFrame KeyStroke JTextPane SwingUtilities)
            (java.awt BorderLayout Color Dimension Point)
            (com.formdev.flatlaf FlatDarkLaf)))
@@ -45,6 +46,7 @@
         _ (add-key-bindings
            clip-pane [text-view table-view config] (-> clip-table (.getViewport) (.getView)) config)
         content (doto (.getContentPane frame)
+                  (.add (menu-bar/build state) BorderLayout/NORTH)
                   (.add editor BorderLayout/WEST)
                   (.add clip-table BorderLayout/EAST))]
     (doto frame
