@@ -55,15 +55,6 @@
           (.setBorder scroll-pane nil))
         (catch Exception e)))))
 
-(defn text-pane []
-  (doto (JTextPane.)
-    (.setBackground Color/BLACK)
-    (.setForeground Color/GREEN)
-    (.setCaretColor Color/WHITE)
-    (.setEditable true)
-    (.addFocusListener focus-listener)
-    (.setFont (Font. "Monospaced" Font/PLAIN 14))))
-
 (defn set-clip [clip]
   (try
     (let [[positions text] (clip/as-str clip)]
@@ -147,7 +138,8 @@
             f))))))
 
 (defn create-editor [state]
-  (let [text-editor (text-pane)
+  (let [text-editor (doto (utils/text-pane)
+                      (.addFocusListener focus-listener))
         _ (reset! clip-text-editor text-editor)
         table-editor (doto (mk-table-editor)
                        (.setModel (mk-table-model))

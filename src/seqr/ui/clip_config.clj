@@ -134,6 +134,30 @@
              (when (and prop r (> r 0))
                (send clip-atom update-in [:data :args] dissoc prop)
                (.fireTableStructureChanged model))))
+        _ (utils/add-key-action
+              table "control E" "edit-prop"
+            (let [r (.getSelectedRow table)
+                  c (.getSelectedColumn table)
+                  val (.getValueAt model r c)]
+              (if (odd? c)
+                (when-let [prop (.getValueAt model r (dec c))]
+                  (utils/show-text-input-dialog
+                   (.getSource e) "Edit" val #(.setValueAt model % r c)))
+                (when (> r 0)
+                  (utils/show-text-input-dialog
+                   (.getTopLevelAncestor (.getSource e)) "Edit" val
+                   (fn [new-prop]
+                     (let [prop-val (get-in @clip-atom [:data :args val])]
+                       (send clip-atom update-in [:data :args]
+                             #(do (-> % (dissoc val) (assoc new-prop prop-val))))
+                       (.fireTableDataChanged model))))))))
+        _ (utils/add-key-action
+           table "control A" "add-prop"
+            (utils/show-text-input-dialog
+             (.getTopLevelAncestor (.getSource e)) "Add arg" ""
+             (fn [new-prop]
+               (send clip-atom assoc-in [:data :args new-prop] "")
+               (.fireTableStructureChanged model))))
         scroll-pane (JScrollPane. table)
         _ (.addTableModelListener
            model
