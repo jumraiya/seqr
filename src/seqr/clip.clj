@@ -275,7 +275,7 @@
               args args)))
 
 (defn parse-clip [text & [clip]]
-  (let [clip (merge {:div 4 :args {} :outs {} :group "default" :dynamic #{}} clip)
+  (let [clip (merge {:div 4 :args {} :dynamic #{}} clip)
         [token text] (next-token text)
         clip (assoc clip :point 1)
         clip (condp = (:type token)

@@ -71,7 +71,10 @@
 
 (defn replace-syms [syms xform]
   "Recursively go through an xform, replacing symbols using the given lookup map"
-  (crawl #(or (get syms %) %) xform))
+  (crawl #(or (get syms (if (symbol? %)
+                          (-> % name symbol)
+                          %))
+              %) xform))
 
 (defmacro wrap-xform-in-fn [args xform]
   (let [arg-syms (into {} (map #(vector % (gensym)) args))

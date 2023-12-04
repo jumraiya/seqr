@@ -114,45 +114,12 @@
                 (if text
                   (recur (conj ops op) text)
                   (conj ops op `(get-packet)))))
-        xargs {`data data-sym `msg msg-sym}
+        xargs {'data data-sym 'msg msg-sym}
         ops (mapv #(helper/replace-syms xargs %) ops)]
     `(fn [~data-sym]
        (let [~msg-sym (osc-msg ~url)]
          (-> ~msg-sym
-             ~@ops)))
-    ))
-
-#_(defn builder [template]
-  "Usage (builder \"/s_new ?node-id:-1 ?target:0\" {:target 22})"
-  (let [[url text] (next-token template)
-        url (:val url)
-        osc-msg (osc-msg url)]
-    (fn [args]
-      (if text
-        (loop [msg osc-msg text text]
-          (let [[data text] (next-token text)
-                t (:type data)
-                v (:val data)
-                [k d] (if (= t t-param)
-                        v [nil nil])
-                m (condp = t
-                    t-int    (push-int msg v)
-                    t-float  (push-float msg v)
-                    t-word   (push-string msg v)
-                    t-param  (push-val
-                              msg
-                              (if (contains? args k)
-                                (get args k)
-                                (or d -666)))
-                    t-spread (reduce
-                              #(push-val %1 %2)
-                              msg (if (contains? args v)
-                                    (get args v)
-                                    [])))]
-            (if text
-              (recur m text)
-              (get-packet m))))
-        (get-packet osc-msg)))))
+             ~@ops)))))
 
 (defn osc-align
   "Jump the current position to a 4 byte boundary for OSC compatible alignment."

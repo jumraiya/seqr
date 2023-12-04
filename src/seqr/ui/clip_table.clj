@@ -28,7 +28,8 @@
     (getCellRenderer [row col]
       (reify TableCellRenderer
         (getTableCellRendererComponent [this table value isSelected hasFocus row col]
-          (let [f (JLabel. value)]
+          (let [f (doto (JLabel. value)
+                    (.setFont (Font. "Monospaced" Font/PLAIN 16)))]
             (when hasFocus
               (.setBorder f (LineBorder. Color/YELLOW 2)))            
             f))))))
@@ -52,8 +53,7 @@
         table (doto (build-table)
                 (.setModel table-model)
                 (.setTableHeader nil)
-                (.addFocusListener focus-listener)
-                (.setFont (Font. "Monospaced" Font/PLAIN 14)))
+                (.addFocusListener focus-listener))
         _ (add-watch state :clip-table (fn [key state old new]
                                          (.fireTableStructureChanged table-model)))]
     (JScrollPane. table)))

@@ -2,7 +2,8 @@
   (:require
    [seqr.clip :as clip]
    [seqr.helper :as helper]
-   [seqr.ui.clip-config :as clip-config])
+   [seqr.ui.clip-config :as clip-config]
+   [seqr.ui.utils :as utils])
   (:import
    (javax.swing AbstractAction JComponent JTextPane JScrollPane JSplitPane JTable KeyStroke JLabel)
    (javax.swing.table AbstractTableModel TableCellRenderer)
@@ -32,15 +33,19 @@
 
 (defonce ^:private clip-table-editor (atom nil))
 
-(defonce ^:private cur-clip (atom nil))
+(defonce ^:private clip-config-editor (atom nil))
+
+(defonce ^:private cur-clip (agent nil))
 
 (defonce ^:private clip-editor (atom nil))
+
+(defonce ^:private name-counter (atom 0))
 
 (def focus-listener
   (reify FocusListener
     (focusGained [this e]
       (when-let [scroll-pane (.getParent (.getParent (.getSource e)))]
-          (.setBorder scroll-pane (LineBorder. Color/YELLOW 2))))
+        (.setBorder scroll-pane (LineBorder. Color/YELLOW 2))))
     (focusLost [this e]
       (try
         (when-let [scroll-pane (cond-> e
@@ -50,7 +55,7 @@
           (.setBorder scroll-pane nil))
         (catch Exception e)))))
 
-(defn- text-pane []
+(defn text-pane []
   (doto (JTextPane.)
     (.setBackground Color/BLACK)
     (.setForeground Color/GREEN)
@@ -66,8 +71,9 @@
                 (if-let [pos (get-in positions [1 1])]
                   (.substring text (first pos))
                   ""))
-      (reset! cur-clip {:positions positions :text text :data clip})
-      (.fireTableStructureChanged (.getModel @clip-table-editor)))
+      (send cur-clip merge {:positions positions :text text :data clip})
+      (.fireTableStructureChanged (.getModel @clip-table-editor))
+      (.fireTableStructureChanged (-> @clip-config-editor .getViewport .getView .getModel)))
     (catch Exception e
       (prn "Error setting editor content" e))))
 
@@ -89,52 +95,46 @@
       true)))
 
 (defn- save-clip [ui-state]
-  (let [clip-pos (or (some #(when (= (:name (second %)) (-> @cur-clip :data :name))
+  (let [clip-name (-> @cur-clip :data :name)
+        clip-name (if (not (clojure.string/blank? clip-name))
+                    clip-name
+                    (str "clip-" (swap! name-counter inc)))
+        clip-pos (or (some #(when (= (:name (second %)) clip-name)
                               (first %))
                            (map-indexed vector (:clips @ui-state)))
-                     (max 0 (count (:clips @ui-state))))]
+                     (count (:clips @ui-state)))]
+    (when (not= clip-name (-> @cur-clip :data :name))
+      (send cur-clip assoc-in [:data :name] clip-name))
     (send ui-state assoc-in [:clips clip-pos] (:data @cur-clip))))
 
 (defn- add-keybindings [ui-state editor text table config-table]
-  (doto (.getInputMap config-table)
-    (.put (KeyStroke/getKeyStroke "control DOWN") "focus-editor"))
-  (doto (.getInputMap text)
-    (.put (KeyStroke/getKeyStroke "control T") "toggle-table-mode"))
-  (doto (.getInputMap table JComponent/WHEN_IN_FOCUSED_WINDOW)
-    (.put (KeyStroke/getKeyStroke "control T") "toggle-table-mode"))
-  (doto (.getActionMap config-table)
-    (.put "focus-editor"
-          (proxy [AbstractAction] []
-            (actionPerformed [e]
-              (.requestFocusInWindow (.getView (.getViewport editor)))))))
-  (doto (.getActionMap text)
-    (.put "toggle-table-mode"
-          (proxy [AbstractAction] []
-            (actionPerformed [e]
-              (.setViewportView editor table)
-              (.requestFocusInWindow table)))))
-  (doto (.getActionMap table)
-    (.put "toggle-table-mode"
-          (proxy [AbstractAction] []
-            (actionPerformed [e]
-              (.setViewportView editor text)
-              (.requestFocusInWindow text)))))
+  (utils/add-key-action config-table "control DOWN" "focus-editor"
+    (.requestFocusInWindow (.getView (.getViewport editor))))
+
   (doseq [c [text table]]
-    (doto (.getInputMap c)
-      (.put (KeyStroke/getKeyStroke "control UP") "focus-config"))
-    (doto (.getActionMap c)
-      (.put "focus-config"
-            (proxy [AbstractAction] []
-              (actionPerformed [e]
-                (.requestFocusInWindow config-table))))))
-  (doseq [c [text table config-table]]
-    (doto (.getInputMap c)
-      (.put (KeyStroke/getKeyStroke "control S") "save-clip"))
-    (doto (.getActionMap c)
-      (.put "save-clip"
-            (proxy [AbstractAction] []
-              (actionPerformed [e]
-                (save-clip ui-state)))))))
+    (utils/add-key-action c "control UP" "focus-config"
+      (.requestFocusInWindow config-table)))
+
+  (utils/add-key-action text "control T" "toggle-table-mode"
+    (.setViewportView editor table)
+    (.requestFocusInWindow table))
+
+  (utils/add-key-action-with-focus
+      table "control T" "toggle-table-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
+    (.setViewportView editor text)
+    (.requestFocusInWindow text))
+
+  (utils/add-key-action text "control S" "save-clip"
+    (send cur-clip
+          assoc :data (clip/parse-clip
+                       (.getText text)
+                       (reduce #(if (number? %2) (dissoc %1 %2) %1)
+                               (:data @cur-clip) (keys (:data @cur-clip)))))
+    (save-clip ui-state))
+  
+  (doseq [c [table config-table]]
+    (utils/add-key-action c "control S" "save-clip"
+      (save-clip ui-state))))
 
 (defn- mk-table-editor []
   (proxy [JTable] []
@@ -160,6 +160,7 @@
         _ (reset! clip-editor pane)
         config (clip-config/build-table
                 cur-clip pane ["dest1" "dest2"] ["note" "scale"])
+        _ (reset! clip-config-editor config)
         _ (add-keybindings state pane text-editor table-editor (.getView (.getViewport config)))
         split-pane (doto (JSplitPane. JSplitPane/VERTICAL_SPLIT true config pane)
                      (.setOneTouchExpandable true)
