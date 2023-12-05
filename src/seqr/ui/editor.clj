@@ -85,18 +85,19 @@
     (isCellEditable [row col]
       true)))
 
-(defn- save-clip [ui-state]
-  (let [clip-name (-> @cur-clip :data :name)
-        clip-name (if (not (clojure.string/blank? clip-name))
-                    clip-name
-                    (str "clip-" (swap! name-counter inc)))
+(defn- save-clip [ui-state clip]
+  (let [clip-name (-> clip :data :name)
+        ;; clip-name (if (not (clojure.string/blank? clip-name))
+        ;;             clip-name
+        ;;             (str "clip-" (swap! name-counter inc)))
         clip-pos (or (some #(when (= (:name (second %)) clip-name)
                               (first %))
                            (map-indexed vector (:clips @ui-state)))
                      (count (:clips @ui-state)))]
-    (when (not= clip-name (-> @cur-clip :data :name))
+    #_(when (not= clip-name (-> clip :data :name))
       (send cur-clip assoc-in [:data :name] clip-name))
-    (send ui-state assoc-in [:clips clip-pos] (:data @cur-clip))))
+    (when clip-name
+        (send ui-state assoc-in [:clips clip-pos] (:data clip)))))
 
 (defn- add-keybindings [ui-state editor text table config-table]
   (utils/add-key-action config-table "control DOWN" "focus-editor"
@@ -115,7 +116,7 @@
     (.setViewportView editor text)
     (.requestFocusInWindow text))
 
-  (utils/add-key-action text "control S" "save-clip"
+  #_(utils/add-key-action text "control S" "save-clip"
     (send cur-clip
           assoc :data (clip/parse-clip
                        (.getText text)
@@ -123,7 +124,7 @@
                                (:data @cur-clip) (keys (:data @cur-clip)))))
     (save-clip ui-state))
   
-  (doseq [c [table config-table]]
+  #_(doseq [c [table config-table]]
     (utils/add-key-action c "control S" "save-clip"
       (save-clip ui-state))))
 
@@ -164,6 +165,10 @@
         split-pane (doto (JSplitPane. JSplitPane/VERTICAL_SPLIT true config pane)
                      (.setOneTouchExpandable true)
                      (.setDividerSize 10))]
+    (add-watch
+     cur-clip :save-clip
+     (fn [_ _ _ new-clip]
+       (save-clip state new-clip)))
     (add-styles text-editor)
     [split-pane pane text-editor table-editor (.getView (.getViewport config))]))
 

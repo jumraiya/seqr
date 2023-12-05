@@ -3,14 +3,13 @@
    [seqr.clip :as clip]
    [seqr.ui.utils :as utils])
   (:import
-   (javax.swing JMenuBar JMenu JMenuItem JFileChooser)
-   (javax.swing.filechooser FileSystemView)))
+   (javax.swing JMenuBar JMenu JMenuItem JFileChooser)))
 
 
 (defn load-sketch [path editor state]
   (try
     (let [{:keys [clips]} (read-string (slurp path))]
-      (send state assoc :clips clips))
+      (send state assoc :clips (mapv clip/parse-clip clips)))
     (catch Exception e
       (prn "Error loading sketch" e))))
 
@@ -25,7 +24,7 @@
       (prn "Error saving sketch" e))))
 
 (defn- save-load-sketch [editor state load?]
-  (let [chooser (JFileChooser. (.getHomeDirectory (FileSystemView/getFileSystemView)))
+  (let [chooser (JFileChooser.)
         res (if load?
               (.showOpenDialog chooser editor)
               (.showSaveDialog chooser editor))]
