@@ -6,16 +6,7 @@
    [seqr.connections :as conn]
    [seqr.midi :as midi]))
 
-(defonce interpreters (atom {}))
 
-(defonce serializers (atom {}))
-
-
-(defn register-interpreter [key f]
-  (swap! interpreters assoc key f))
-
-(defn register-serializer [key f]
-  (swap! serializers assoc key f))
 
 ;; (doseq [[k f] (ns-publics 'seqr.interpreters)]
 ;;   (register-interpreter (name k) f))
@@ -23,12 +14,9 @@
 ;; (doseq [[k f] (ns-publics 'seqr.serializers)]
 ;;   (register-serializer (name k) f))
 
-(conn/add-destination! "localhost" 57110 :sc)
+(conn/add-destination! "localhost" 57110 "sc")
 
-(conn/add-destination! "localhost" 57120 :sc-lang)
-
-
-
+(conn/add-destination! "localhost" 57120 "sc-lang")
 
 (comment
   (player/ui)
@@ -63,7 +51,7 @@
   (player/add-clip
    :test2
    (cl/clip
-    [d4 e2 a3]
-    :args {:synth "sin"}
-    :eval sc/sc-note
-    :outs {:sc sc/s-new})))
+       [d4 e2 a3]
+       :args {:synth "sin"}
+       :eval sc/sc-note
+       :outs {:sc sc/s-new})))

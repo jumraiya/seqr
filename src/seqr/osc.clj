@@ -83,7 +83,7 @@
        (-> param nil? not) {:type t-param :val (let [[var default] (split param #":" 2)
                                                      val (if default
                                                            (-> default next-token first :val))]
-                                                 [(keyword (.substring var 1))
+                                                 [(.substring var 1)
                                                   val])}
        (-> word nil? not) {:type t-word :val word}
        (-> f nil? not) {:type t-float :val (Float/parseFloat f)}

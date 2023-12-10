@@ -1,6 +1,14 @@
 (ns seqr.interpreters
   (:require [seqr.music :as mu]))
 
+(defonce interpreters (atom {}))
+
+(defn register-interpreter [key f]
+  (swap! interpreters assoc key f))
+
+(defn interpret [{:keys [interpreter]} action]
+  ((get @interpreters interpreter) action))
+
 
 (defn note [{:keys [action synth] :as data}]
   (let [n (mu/note action)
@@ -15,3 +23,5 @@
                             :synth synth
                             :args args})]
     params))
+
+(register-interpreter "note" note)

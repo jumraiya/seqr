@@ -16,15 +16,15 @@
 
 
 
-(defn add-destination! [^String host ^Integer port ^clojure.lang.Keyword name]
+(defn add-destination! [^String host ^Integer port name]
   (swap! destinations assoc name (InetSocketAddress. host port)))
 
-(defn rm-destination! [^String host ^Integer port ^clojure.lang.Keyword name]
+(defn rm-destination! [^String host ^Integer port name]
   (when-let [dest (get @destinations name)]
     (.close dest)
     (swap! destinations dissoc name)))
 
-(defn connect! [^String host ^Integer port ^clojure.lang.Keyword name]
+(defn connect! [^String host ^Integer port name]
  (try
     (let [ch (doto (SocketChannel/open)
                (.connect (InetSocketAddress. host port)))]
@@ -33,7 +33,7 @@
     (catch Exception e
       (prn "Could not form persistent connection to " name host port (.getMessage e)))))
 
-(defn disconnect! [^clojure.lang.Keyword name]
+(defn disconnect! [name]
   (when-let [conn (get @connections name)]
     (try
       (.close conn)
@@ -41,11 +41,14 @@
       (catch Exception e
         (prn "Could not disconnect" name)))))
 
-(defn send! [^clojure.lang.Keyword conn bytes]
-  (when-let [dest (get @destinations conn)]
-    (.send @data-socket
-           (DatagramPacket. bytes 0 (alength bytes)
-                            dest))))
+(defn send!
+  ([conn bytes]
+   (send! conn bytes 0 (alength bytes)))
+  ([conn bytes offset length]
+   (when-let [dest (get @destinations conn)]
+     (.send @data-socket
+            (DatagramPacket. bytes offset length
+                             dest)))))
 
 #_(defn send-and-receive! [^clojure.lang.Keyword conn bytes]
   (when-let [conn (get @connections conn)]
@@ -62,7 +65,7 @@
        0)
       (.write conn write-buf))))
 
-(defn send-and-receive! [^clojure.lang.Keyword conn bytes]
+(defn send-and-receive! [conn bytes]
   (let [res (future
               (try
                 (let [buf (byte-array 4096)

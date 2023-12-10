@@ -82,3 +82,14 @@
         xform (replace-syms arg-syms xform)]
     `(fn [~@args]
        ~xform)))
+
+(defn short->bytes [v]
+  (into-array Byte/TYPE
+              [(unchecked-byte v)
+               (-> v (unsigned-bit-shift-right 8) unchecked-byte)]))
+
+(defn bytes->short [[a b]]
+  (-> (short 0)
+      (bit-or b)
+      (bit-shift-left 8)
+      (bit-or a)))
