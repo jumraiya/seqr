@@ -35,7 +35,27 @@
                               (* (.getRowHeight table) (.getRowCount table)))]
     (.setViewSize (.getViewport scroll-pane) view-size)))
 
-(defn- config-model [clip-atom table]
+
+(defn get-config-map [config-table]
+  (let [model (.getModel config-table)]
+    (reduce
+     (fn [config [r c]]
+       (when-let [v (.getValueAt model r c)]
+         (when-let [prop (.getValueAt model r (dec c))]
+           (assoc-in config
+                     (if (contains? (set default-properties) (keyword prop))
+                       [(keyword prop)]
+                       [:args (name prop)])
+                     (cond
+                       (re-matches #"\d+" v) (Integer/parseInt v)
+                       (re-matches #"[\d\.]+" v) (Float/parseFloat v)
+                       :else v)))))
+     {}
+     (for [r (range (.getRowCount model))
+           c (filter odd? (range (.getColumnCount model)))]
+       [r c]))))
+
+(defn- config-model [clip-atom table ui-state save-fn]
   (proxy [AbstractTableModel] []
     (getColumnCount []
       8)
@@ -54,18 +74,23 @@
       (let [args (flatten
                   (into (mapv #(vector % (get-in @clip-atom [:data %])) default-properties)
                         (->> @clip-atom :data :args (sort-by key))))
-            prop (nth args (+ (* row 8) (dec col)) nil)]
+            prop (nth args (+ (* row 8) (dec col)) nil)
+            cur-clip (:data @clip-atom)]
         (when prop
-          (send clip-atom assoc-in
-                (if (contains? (set default-properties) prop)
-                  [:data prop]
-                  [:data :args (name prop)])
-                (cond
-                  (re-matches #"\d+" val) (Integer/parseInt val)
-                  (re-matches #"[\d\.]+" val) (Float/parseFloat val)
-                  :else val)))))
+          (save-fn
+           ui-state
+           (assoc-in cur-clip
+                     (if (contains? (set default-properties) (keyword prop))
+                       [(keyword prop)]
+                       [:args (name prop)])
+                     (cond
+                       (re-matches #"\d+" val) (Integer/parseInt val)
+                       (re-matches #"[\d\.]+" val) (Float/parseFloat val)
+                       :else val))))))
     (isCellEditable [row col]
       (odd? col))))
+
+
 
 #_(defn- watch [clip container table]
   (add-watch clip :config-table
@@ -114,9 +139,9 @@
               (.setBorder f (LineBorder. Color/YELLOW 2)))            
             f))))))
 
-(defn build-table [clip-atom ^JSplitPane container-pane destinations interpreters]
+(defn build-table [clip-atom ui-state save-clip-fn ^JSplitPane container-pane destinations interpreters]
   (let [table (build-config-table clip-atom destinations interpreters)
-        model (config-model clip-atom table)
+        model (config-model clip-atom table ui-state save-clip-fn)
         ;_ (watch clip-atom container-pane table)
         ;_ (.addComponentListener container-pane (on-container-resize clip-atom table))
         table (doto table

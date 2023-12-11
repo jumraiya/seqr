@@ -1,4 +1,4 @@
-(ns seqr.sequencer-controls
+(ns seqr.ui.sequencer-controls
   (:require
    [seqr.ui.utils :as utils]
    [seqr.sequencer :as sequencer])

@@ -275,7 +275,8 @@
               args args)))
 
 (defn parse-clip [text & [clip]]
-  (let [clip (merge {:div 4 :args {} :dynamic #{}} clip)
+  (let [clip (merge {:div 4 :args {} :dynamic #{}}
+                    (reduce dissoc clip (filter number? (keys clip))))
         [token text] (next-token text)
         clip (assoc clip :point 1)
         clip (condp = (:type token)
@@ -298,7 +299,8 @@
         outs (into {} (map (fn [[k v]] [k (get-fn v)]) (:outs clip)))
         eval-fn (get-fn (or (:eval clip) (with-meta identity {:ns "clojure.core" :name "identity"})))
         eval-fn (with-meta (partial wrap-eval eval-fn) (meta eval-fn))]
-    (assoc clip :eval eval-fn :outs outs)))
+    ;(assoc clip :eval eval-fn :outs outs)
+    clip))
 
 (defmacro clip [actions & {:keys [div args outs eval group] :or {div 4 args {} group "default"} :as clip}]
   (let [data (parse-clip (reduce #(str %1 (clojure.string/replace %2 "," "") " ") "" actions)
