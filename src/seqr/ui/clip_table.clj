@@ -1,6 +1,7 @@
 (ns seqr.ui.clip-table
   (:require
-   [seqr.ui.utils :as utils])
+   [seqr.ui.utils :as utils]
+   [seqr.sequencer :as sequencer])
   (:import
    (java.awt.event ComponentListener ComponentEvent)
    (javax.swing JComboBox JTextPane JScrollPane JSplitPane JTable JList JTextField DefaultCellEditor JLabel JOptionPane)
@@ -57,8 +58,8 @@
                 (.setTableHeader nil)
                 (.addFocusListener focus-listener))
         _ (add-watch state :clip-table (fn [key state old new]
-                                         (.fireTableStructureChanged table-model)))
-        _ (utils/add-key-action
+                                         (.fireTableStructureChanged table-model)))]
+    (utils/add-key-action
            table "control D" "delete-clip"
            (let [row (.getSelectedRow table)
                  col (.getSelectedColumn table)
@@ -71,9 +72,12 @@
                          (str "Delete " clip-name "?")
                          "Delete clip"
                          JOptionPane/YES_NO_CANCEL_OPTION)]
-             #_(prn clip-pos choice JOptionPane/YES_OPTION
-                  (into (subvec (:clips @state) 0 clip-pos) (subvec (:clips @state) (inc clip-pos))))
              (when (and clip-pos (= choice JOptionPane/YES_OPTION))
                (send state update :clips
-                     #(into (subvec % 0 clip-pos) (subvec % (inc clip-pos)))))))]
+                     #(into (subvec % 0 clip-pos) (subvec % (inc clip-pos)))))))
+    (utils/add-key-action
+        table "control A" "set-clip-active"
+      (let [row (.getSelectedRow table)
+            col (.getSelectedColumn table)]
+          (sequencer/set-clip-active (.getValueAt table-model row col) true)))
     (JScrollPane. table)))

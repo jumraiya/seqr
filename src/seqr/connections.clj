@@ -14,10 +14,15 @@
 
 (defonce ^:private connections (atom {}))
 
+(defonce ^:private serializers (atom {}))
 
+(defn get-serializer [dest]
+  (get @serializers dest))
 
-(defn add-destination! [^String host ^Integer port name]
-  (swap! destinations assoc name (InetSocketAddress. host port)))
+(defn add-destination! [^String host ^Integer port name & [serializer]]
+  (swap! destinations assoc name (InetSocketAddress. host port))
+  (when serializer
+    (swap! serializers assoc name serializer)))
 
 (defn rm-destination! [^String host ^Integer port name]
   (when-let [dest (get @destinations name)]

@@ -4,17 +4,10 @@
    [seqr.clip :as cl]
    [seqr.sc :as sc]
    [seqr.connections :as conn]
-   [seqr.midi :as midi]))
+   [seqr.midi :as midi]
+   [seqr.serializers :as se]))
 
-
-
-;; (doseq [[k f] (ns-publics 'seqr.interpreters)]
-;;   (register-interpreter (name k) f))
-
-;; (doseq [[k f] (ns-publics 'seqr.serializers)]
-;;   (register-serializer (name k) f))
-
-(conn/add-destination! "localhost" 57110 "sc")
+(conn/add-destination! "localhost" 57110 "sc" se/sc-new-synth)
 
 (conn/add-destination! "localhost" 57120 "sc-lang")
 

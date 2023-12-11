@@ -6,8 +6,8 @@
 (defn register-interpreter [key f]
   (swap! interpreters assoc key f))
 
-(defn interpret [{:keys [interpreter]} action]
-  ((get @interpreters interpreter) action))
+(defn interpret [{:keys [args interpreter]} action]
+  ((get @interpreters interpreter) (merge args action)))
 
 
 (defn note [{:keys [action synth] :as data}]

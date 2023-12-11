@@ -3,7 +3,8 @@
    [seqr.clip :as clip]
    [seqr.helper :as helper]
    [seqr.ui.clip-config :as clip-config]
-   [seqr.ui.utils :as utils])
+   [seqr.ui.utils :as utils]
+   [seqr.sequencer :as sequencer])
   (:import
    (javax.swing AbstractAction JComponent JTextPane JScrollPane JSplitPane JTable KeyStroke JLabel)
    (javax.swing.table AbstractTableModel TableCellRenderer)
@@ -55,49 +56,62 @@
           (.setBorder scroll-pane nil))
         (catch Exception e)))))
 
-(defn set-clip [clip]
+(defn set-clip [{:keys [div point] :as clip}]
   (try
-    (let [[positions text] (clip/as-str clip)]
-      (.setText @clip-text-editor
-                (if-let [pos (get-in positions [1 1])]
-                  (.substring text (first pos))
-                  ""))
-      (send cur-clip merge {:positions positions :text text :data clip})
-      (.fireTableStructureChanged (.getModel @clip-table-editor))
-      (.fireTableStructureChanged (-> @clip-config-editor .getViewport .getView .getModel)))
+    (when (and div point)
+        (let [[positions text] (clip/as-str clip)]
+          (.setText @clip-text-editor
+                    (if-let [pos (get-in positions [1 1])]
+                      (.substring text (first pos))
+                      ""))
+          (send cur-clip merge {:positions positions :text text :data clip})
+          (.fireTableStructureChanged (.getModel @clip-table-editor))
+          (.fireTableStructureChanged (-> @clip-config-editor .getViewport .getView .getModel))))
     (catch Exception e
       (prn "Error setting editor content" e))))
 
 (defn- mk-table-model []
   (proxy [AbstractTableModel] []
     (getColumnCount []
-      (or (-> @cur-clip :data :div) 0))
+      (or (-> @cur-clip :data :div) 4))
     (getRowCount []
-      (->> @cur-clip :data keys (filter number?) (into [0]) (apply max)))
+      (int (/ (-> @cur-clip :data (:div 4)) sequencer/MAX-CLIP-ACTIONS))
+      #_(if (and (contains? (:data @cur-clip) :point)
+                 (contains? (:data @cur-clip) :div))
+          (int (/ (-> @cur-clip :data :point) (-> @cur-clip :data :div)))
+          1))
     (getValueAt [row col]
       (let [[start end] (get-in @cur-clip [:positions (inc row) (inc col)])]
         (when start
           (.substring (:text @cur-clip) start end))))
     (setValueAt [val row col]
       (let [actions (get-in (clip/parse-clip val {:args (-> @cur-clip :data :args)})
-                            [1 1])]
-        (set-clip (assoc-in (:data @cur-clip) [(inc row) (inc col)] actions))))
+                            [1 1])
+            new-clip (assoc-in (:data @cur-clip) [(inc row) (inc col)] actions)
+            at-point (helper/get-point (inc row) (inc col))]
+        (set-clip (if (and (seq actions)
+                           (< (:point new-clip 1) (inc at-point)))
+                    (assoc new-clip :point (inc at-point))
+                    new-clip))))
     (isCellEditable [row col]
       true)))
-
+#trace
 (defn- save-clip [ui-state clip]
-  (let [clip-name (-> clip :data :name)
-        ;; clip-name (if (not (clojure.string/blank? clip-name))
-        ;;             clip-name
-        ;;             (str "clip-" (swap! name-counter inc)))
+  (let [clip-name (-> clip :name)
         clip-pos (or (some #(when (= (:name (second %)) clip-name)
                               (first %))
                            (map-indexed vector (:clips @ui-state)))
                      (count (:clips @ui-state)))]
-    #_(when (not= clip-name (-> clip :data :name))
-      (send cur-clip assoc-in [:data :name] clip-name))
     (when clip-name
-        (send ui-state assoc-in [:clips clip-pos] (:data clip)))))
+      (send ui-state assoc-in [:clips clip-pos] (:data clip))
+      (sequencer/save-clip (:data clip)))))
+#trace
+(defn- test [text ui-state]
+  (let [new-clip (clip/parse-clip
+                  (.getText text)
+                  (reduce #(if (number? %2) (dissoc %1 %2) %1)
+                          (:data @cur-clip) (keys (:data @cur-clip))))]
+      (save-clip ui-state new-clip)))
 
 (defn- add-keybindings [ui-state editor text table config-table]
   (utils/add-key-action config-table "control DOWN" "focus-editor"
@@ -113,20 +127,20 @@
 
   (utils/add-key-action-with-focus
       table "control T" "toggle-table-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
-    (.setViewportView editor text)
-    (.requestFocusInWindow text))
+      (.setViewportView editor text)
+      (.requestFocusInWindow text))
 
-  #_(utils/add-key-action text "control S" "save-clip"
-    (send cur-clip
-          assoc :data (clip/parse-clip
-                       (.getText text)
-                       (reduce #(if (number? %2) (dissoc %1 %2) %1)
-                               (:data @cur-clip) (keys (:data @cur-clip)))))
-    (save-clip ui-state))
+  (utils/add-key-action text "control S" "save-clip"
+    (test text ui-state)
+    #_(let [new-clip (clip/parse-clip
+                      (.getText text)
+                      (reduce #(if (number? %2) (dissoc %1 %2) %1)
+                              (:data @cur-clip) (keys (:data @cur-clip))))]
+        (save-clip ui-state new-clip)))
   
   #_(doseq [c [table config-table]]
-    (utils/add-key-action c "control S" "save-clip"
-      (save-clip ui-state))))
+      (utils/add-key-action c "control S" "save-clip"
+        (save-clip ui-state))))
 
 (defn- mk-table-editor []
   (proxy [JTable] []
@@ -159,7 +173,7 @@
                (.setPreferredSize (Dimension. 800 500)))
         _ (reset! clip-editor pane)
         config (clip-config/build-table
-                cur-clip pane ["dest1" "dest2"] ["note" "scale"])
+                cur-clip pane ["sc"] ["note" "scale"])
         _ (reset! clip-config-editor config)
         _ (add-keybindings state pane text-editor table-editor (.getView (.getViewport config)))
         split-pane (doto (JSplitPane. JSplitPane/VERTICAL_SPLIT true config pane)
