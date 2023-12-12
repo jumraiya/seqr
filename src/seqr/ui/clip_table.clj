@@ -33,6 +33,12 @@
         (getTableCellRendererComponent [this table value isSelected hasFocus row col]
           (let [f (doto (JLabel. value)
                     (.setFont (Font. "Monospaced" Font/PLAIN 16)))]
+            (when (sequencer/is-clip-active?
+                   (.getValueAt (.getModel table) row col))
+              (doto f
+                (.setForeground (Color/BLACK))
+                (.setBackground (Color/GREEN))
+                (.setOpaque true)))
             (when hasFocus
               (.setBorder f (LineBorder. Color/YELLOW 2)))            
             f))))))
@@ -79,5 +85,12 @@
         table "control A" "set-clip-active"
       (let [row (.getSelectedRow table)
             col (.getSelectedColumn table)]
-          (sequencer/set-clip-active (.getValueAt table-model row col) true)))
+          (sequencer/set-clip-active (.getValueAt table-model row col) true)
+          (.fireTableDataChanged table-model)))
+    (utils/add-key-action
+        table "control X" "set-clip-inactive"
+      (let [row (.getSelectedRow table)
+            col (.getSelectedColumn table)]
+          (sequencer/set-clip-active (.getValueAt table-model row col) false)
+          (.fireTableDataChanged table-model)))
     (JScrollPane. table)))

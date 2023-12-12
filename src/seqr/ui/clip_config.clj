@@ -40,8 +40,10 @@
   (let [model (.getModel config-table)]
     (reduce
      (fn [config [r c]]
-       (when-let [v (.getValueAt model r c)]
-         (when-let [prop (.getValueAt model r (dec c))]
+       (if-let [v (and (-> (.getValueAt model r c) (or "") (.trim) empty? not)
+                         (.getValueAt model r c))]
+         (if-let [prop (and (-> (.getValueAt model r (dec c)) (or "") (.trim) empty? not)
+                              (.getValueAt model r (dec c)))]
            (assoc-in config
                      (if (contains? (set default-properties) (keyword prop))
                        [(keyword prop)]
@@ -49,7 +51,9 @@
                      (cond
                        (re-matches #"\d+" v) (Integer/parseInt v)
                        (re-matches #"[\d\.]+" v) (Float/parseFloat v)
-                       :else v)))))
+                       :else v))
+           config)
+         config))
      {}
      (for [r (range (.getRowCount model))
            c (filter odd? (range (.getColumnCount model)))]

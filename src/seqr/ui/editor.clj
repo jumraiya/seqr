@@ -1,6 +1,7 @@
 (ns seqr.ui.editor
   (:require
    [seqr.clip :as clip]
+   [seqr.connections :as conn]
    [seqr.helper :as helper]
    [seqr.ui.clip-config :as clip-config]
    [seqr.ui.utils :as utils]
@@ -59,9 +60,10 @@
 (defn set-clip [{:keys [div point] :as clip}]
   (try
     (when (and div point)
-        (let [[positions text] (clip/as-str clip)]
-          (.setText @clip-text-editor
-                    (if-let [pos (get-in positions [1 1])]
+        (let [[positions text] (clip/as-str clip :exclude-preamble? true) ;(clip/as-str clip)
+              ]
+          (.setText @clip-text-editor text
+                    #_(if-let [pos (get-in positions [1 1])]
                       (.substring text (first pos))
                       ""))
           (send cur-clip merge {:positions positions :text text :data clip})
@@ -69,6 +71,30 @@
           (.fireTableStructureChanged (-> @clip-config-editor .getViewport .getView .getModel))))
     (catch Exception e
       (prn "Error setting editor content" e))))
+
+#trace
+(defn- save-clip [ui-state {:keys [interpreter serializer dest point name div] :as clip}]
+  (let [clip-pos (or (some #(when (= (:name (second %)) name)
+                              (first %))
+                           (map-indexed vector (:clips @ui-state)))
+                     (count (:clips @ui-state)))]
+    (when name
+      (send ui-state assoc-in [:clips clip-pos] clip))
+    (when (and point div)
+      (let [[positions text] (clip/as-str clip :exclude-preamble? true) ;(clip/as-str clip)
+            ]
+        (.setText @clip-text-editor
+                  text
+                  #_(if-let [pos (get-in positions [1 1])]
+                    (.substring text (first pos))
+                    ""))
+        (send cur-clip merge {:positions positions :text text})
+        (when (and name
+                   (not (empty? interpreter))
+                   (or serializer (conn/get-serializer dest)))
+          (sequencer/save-clip clip))))
+    (send cur-clip assoc :data clip)
+    (.fireTableStructureChanged (.getModel @clip-table-editor))))
 
 (defn- mk-table-model [ui-state]
   (proxy [AbstractTableModel] []
@@ -87,9 +113,9 @@
     (setValueAt [val row col]
       (when-let [div (-> @cur-clip :data :div)]
         (let [actions (get-in (clip/parse-clip val (:data @cur-clip))
-                             [1 1])
-             new-clip (assoc-in (:data @cur-clip) [(inc row) (inc col)] actions)
-             at-point (helper/get-point (inc row) (inc col) div)]
+                              [1 1])
+              new-clip (assoc-in (:data @cur-clip) [(inc row) (inc col)] actions)
+              at-point (helper/get-point (inc row) (inc col) div)]
           (save-clip ui-state
                      (if (and (seq actions)
                               (< (:point new-clip 1) (inc at-point)))
@@ -97,22 +123,6 @@
                        new-clip)))))
     (isCellEditable [row col]
       true)))
-
-(defn- save-clip [ui-state {:keys [name div] :as clip}]
-  (let [clip-pos (or (some #(when (= (:name (second %)) name)
-                              (first %))
-                           (map-indexed vector (:clips @ui-state)))
-                     (count (:clips @ui-state)))]
-    (when (and div name)
-      (let [[positions text] (clip/as-str clip)]
-        (.setText @clip-text-editor
-                  (if-let [pos (get-in positions [1 1])]
-                    (.substring text (first pos))
-                    ""))
-        (send cur-clip merge {:positions positions :text text :data clip})
-        (.fireTableStructureChanged (.getModel @clip-table-editor))
-        (send ui-state assoc-in [:clips clip-pos] clip)
-        (sequencer/save-clip clip)))))
 
 (defn- add-keybindings [ui-state editor text table config-table]
   (utils/add-key-action config-table "control DOWN" "focus-editor"
@@ -184,17 +194,22 @@
     (when (some? (:data @cur-clip))
       (set-clip (:data @cur-clip)))
     [split-pane pane text-editor table-editor (.getView (.getViewport config))]))
-
-(defn highlight-action [editor clip pos]
-  (when-some [offsets (get-in @cur-clip [:positions pos])]
-    (let [[start end] offsets
-          doc (.getStyledDocument editor)
-          active-action (.getStyle doc "active-action")
-          default (.getStyle doc "editor-default")] 
-      (.setCharacterAttributes doc start (- end start) active-action true)
-      (future
-        (Thread/sleep 300)
-        (.setCharacterAttributes doc  start (- end start) default true)))))
+#trace
+(defn highlight-action [text-view table-view counter]
+  (let [pos (helper/get-pos
+             counter
+             (-> @cur-clip :data :div)
+             {:player-div (:div @sequencer/state)
+              :size (dec (-> @cur-clip :data :point))})]
+    (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
+      (let [[start end] offsets
+            doc (.getStyledDocument text-view)
+            active-action (.getStyle doc "active-action")
+            default (.getStyle doc "editor-default")] 
+        (.setCharacterAttributes doc start (- end start) active-action true)
+        (future
+          (Thread/sleep 300)
+          (.setCharacterAttributes doc  start (- end start) default true))))))
 
 (comment  
   (def cl (clip/parse-clip "{:args {t 2 atk 0.01 a 2 b 3 g 3 r 12}} a :2 b {t 1}"))

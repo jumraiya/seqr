@@ -248,7 +248,8 @@
                          "\n\n")]
     (when-not exclude-preamble?
         (.append text options-str))
-    (loop [positions {} offset (.length options-str) p 1]
+    (loop [positions {} offset (if exclude-preamble? 0
+                                   (.length options-str)) p 1]
       (let [[bar note] (get-pos p div)
             has-action? (-> clip (get-in [bar note]) empty? not)
             s  (get action-strs p " ") ;(pad-str p)
