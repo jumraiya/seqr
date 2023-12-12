@@ -48,7 +48,7 @@
            clip-pane [text-view table-view config] (-> clip-table (.getViewport) (.getView)) config)
         content (doto (.getContentPane frame)
                   ;(.add (menu-bar/build state) BorderLayout/NORTH)
-                  (.add (controls/mk-bar text-view table-view) BorderLayout/NORTH)
+                  (.add (controls/mk-bar) BorderLayout/NORTH)
                   (.add editor BorderLayout/WEST)
                   (.add clip-table BorderLayout/EAST))]
     (doto frame

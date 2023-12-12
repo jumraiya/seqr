@@ -72,7 +72,7 @@
     (catch Exception e
       (prn "Error setting editor content" e))))
 
-#trace
+
 (defn- save-clip [ui-state {:keys [interpreter serializer dest point name div] :as clip}]
   (let [clip-pos (or (some #(when (= (:name (second %)) name)
                               (first %))
@@ -194,8 +194,8 @@
     (when (some? (:data @cur-clip))
       (set-clip (:data @cur-clip)))
     [split-pane pane text-editor table-editor (.getView (.getViewport config))]))
-#trace
-(defn highlight-action [text-view table-view counter]
+
+(defn highlight-action [counter]
   (let [pos (helper/get-pos
              counter
              (-> @cur-clip :data :div)
@@ -203,7 +203,7 @@
               :size (dec (-> @cur-clip :data :point))})]
     (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
       (let [[start end] offsets
-            doc (.getStyledDocument text-view)
+            doc (.getStyledDocument @clip-text-editor)
             active-action (.getStyle doc "active-action")
             default (.getStyle doc "editor-default")] 
         (.setCharacterAttributes doc start (- end start) active-action true)

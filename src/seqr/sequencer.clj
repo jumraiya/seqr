@@ -56,7 +56,7 @@
         (loop [offset 0]
           (let [point (/ c rel-div)
                 point (if (>= point size)
-                        (max (mod point size) size)
+                        (mod point size)
                         point)
                 len (-> (short 0)
                         (bit-or (aget buffer slot point (inc offset)))
@@ -67,8 +67,7 @@
             (if (and (< (+ offset len 3) MAX-ACTION-LEN)
                      (> len 0))
               (recur (+ offset len 3))
-              nil)))
-        ))))
+              nil)))))))
 
 (defn sender-thread [num counter]
   (let [local-counter (volatile! 0)]
@@ -90,24 +89,25 @@
 
 (defn- assign-sender-clip [slot {:keys [div point dest]}]
   (when (and div point dest)
-      (let [[sender pos] (some (fn [[num {:keys [clips]}]]
-                                 (some (fn [[pos [clip-slot]]]
-                                         (when (= slot clip-slot)
-                                           [num pos]))
-                                       (map-indexed vector clips)))
-                               @sender-threads)]
-        (if sender
-          (send sender-threads update-in [sender :clips] assoc pos [slot div point dest])
-          (let [next-idx  (if (< @sender-idx MAX-SENDERS)
-                            (inc @sender-idx)
-                            1)]
-            (if (contains? @sender-threads next-idx)
-              (send sender-threads update-in [next-idx :clips] conj [slot div point dest])
-              (send sender-threads
-                    assoc next-idx {:thread (cond-> (sender-thread next-idx counter)
-                                              (:running? @state) (.start))
-                                    :clips [[slot div point dest]]}))
-            (send sender-idx (constantly next-idx)))))))
+    (let [[sender pos] (some (fn [[num {:keys [clips]}]]
+                               (some (fn [[pos [clip-slot]]]
+                                       (when (= slot clip-slot)
+                                         [num pos]))
+                                     (map-indexed vector clips)))
+                             @sender-threads)
+          clip-size (dec point)]
+      (if sender
+        (send sender-threads update-in [sender :clips] assoc pos [slot div clip-size dest])
+        (let [next-idx  (if (< @sender-idx MAX-SENDERS)
+                          (inc @sender-idx)
+                          1)]
+          (if (contains? @sender-threads next-idx)
+            (send sender-threads update-in [next-idx :clips] conj [slot div clip-size dest])
+            (send sender-threads
+                  assoc next-idx {:thread (cond-> (sender-thread next-idx counter)
+                                            (:running? @state) (.start))
+                                  :clips [[slot div clip-size dest]]}))
+          (send sender-idx (constantly next-idx)))))))
 
 (defn- save-clip-to-buffer [slot {:keys [interpreter serializer div point dest] :as clip}]
   (clear-slot slot)
@@ -150,7 +150,7 @@
                                                  (/ (:div new-state) (:div clip)))))
                              (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state))))
                              (update :active-slots conj slot))))))))
-#trace
+
 (defn set-clip-active [name active?]
   (when-let [slot (get-in @state [:clip-slots name])]
     (when-let [[div point] (some (fn [[_num {:keys [clips]}]]
