@@ -43,6 +43,8 @@
 
 (defonce ^:private name-counter (atom 0))
 
+(defonce ^:private active-cell (atom nil))
+
 (def focus-listener
   (reify FocusListener
     (focusGained [this e]
@@ -60,12 +62,8 @@
 (defn set-clip [{:keys [div point] :as clip}]
   (try
     (when (and div point)
-        (let [[positions text] (clip/as-str clip :exclude-preamble? true) ;(clip/as-str clip)
-              ]
-          (.setText @clip-text-editor text
-                    #_(if-let [pos (get-in positions [1 1])]
-                      (.substring text (first pos))
-                      ""))
+        (let [[positions text] (clip/as-str clip :exclude-preamble? true)]
+          (.setText @clip-text-editor text)
           (send cur-clip merge {:positions positions :text text :data clip})
           (.fireTableStructureChanged (.getModel @clip-table-editor))
           (.fireTableStructureChanged (-> @clip-config-editor .getViewport .getView .getModel))))
@@ -81,13 +79,8 @@
     (when name
       (send ui-state assoc-in [:clips clip-pos] clip))
     (when (and point div)
-      (let [[positions text] (clip/as-str clip :exclude-preamble? true) ;(clip/as-str clip)
-            ]
-        (.setText @clip-text-editor
-                  text
-                  #_(if-let [pos (get-in positions [1 1])]
-                    (.substring text (first pos))
-                    ""))
+      (let [[positions text] (clip/as-str clip :exclude-preamble? true)]
+        (.setText @clip-text-editor text)
         (send cur-clip merge {:positions positions :text text})
         (when (and name
                    (not (empty? interpreter))
@@ -101,11 +94,7 @@
     (getColumnCount []
       (or (-> @cur-clip :data :div) 4))
     (getRowCount []
-      (int (/ sequencer/MAX-CLIP-ACTIONS (-> @cur-clip :data (:div 4))))
-      #_(if (and (contains? (:data @cur-clip) :point)
-                 (contains? (:data @cur-clip) :div))
-          (int (/ (-> @cur-clip :data :point) (-> @cur-clip :data :div)))
-          1))
+      (int (/ sequencer/MAX-CLIP-ACTIONS (-> @cur-clip :data (:div 4)))))
     (getValueAt [row col]
       (let [[start end] (get-in @cur-clip [:positions (inc row) (inc col)])]
         (when start
@@ -159,6 +148,13 @@
       (reify TableCellRenderer
         (getTableCellRendererComponent [this table value isSelected hasFocus row col]
           (let [f (JLabel. value)]
+            (when (and (not (empty? value))
+                       (= (dec (or (first @active-cell) 0)) row)
+                       (= (dec (or (second @active-cell) 0)) col))
+              (doto f
+                (.setBackground (.brighter Color/YELLOW))
+                (.setForeground Color/BLACK)
+                (.setOpaque true)))
             (when hasFocus
               (.setBorder f (LineBorder. Color/YELLOW 2)))            
             f))))))
@@ -201,15 +197,26 @@
              (-> @cur-clip :data :div)
              {:player-div (:div @sequencer/state)
               :size (dec (-> @cur-clip :data :point))})]
-    (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
-      (let [[start end] offsets
-            doc (.getStyledDocument @clip-text-editor)
-            active-action (.getStyle doc "active-action")
-            default (.getStyle doc "editor-default")] 
-        (.setCharacterAttributes doc start (- end start) active-action true)
+    (if (= (.getView (.getViewport @clip-editor)) @clip-table-editor)
+      (when (first pos)
+        (reset! active-cell pos)
+        (.fireTableCellUpdated (.getModel @clip-table-editor)
+                                 (dec (first pos))
+                                 (dec (second pos)))
         (future
-          (Thread/sleep 300)
-          (.setCharacterAttributes doc  start (- end start) default true))))))
+          (Thread/sleep 300)          
+          (.fireTableCellUpdated (.getModel @clip-table-editor)
+                                 (dec (first pos))
+                                 (dec (second pos)))))
+      (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
+        (let [[start end] offsets
+              doc (.getStyledDocument @clip-text-editor)
+              active-action (.getStyle doc "active-action")
+              default (.getStyle doc "editor-default")] 
+          (.setCharacterAttributes doc start (- end start) active-action true)
+          (future
+            (Thread/sleep 300)
+            (.setCharacterAttributes doc  start (- end start) default true)))))))
 
 (comment  
   (def cl (clip/parse-clip "{:args {t 2 atk 0.01 a 2 b 3 g 3 r 12}} a :2 b {t 1}"))

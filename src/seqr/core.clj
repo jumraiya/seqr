@@ -1,6 +1,6 @@
 (ns seqr.core
   (:require
-   [seqr.player :as player]
+   ;[seqr.player :as player]
    [seqr.clip :as cl]
    [seqr.sc :as sc]
    [seqr.connections :as conn]
