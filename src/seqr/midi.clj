@@ -4,6 +4,8 @@
 
 (defonce midi-buffer (agent []))
 
+(defonce is-recording? (atom false))
+
 (def record-message
   (proxy [Receiver] []
     (close []
@@ -18,31 +20,36 @@
          "open" (.isOpen (MidiSystem/getMidiDevice d))
          "max transmitters" (.getMaxTransmitters (MidiSystem/getMidiDevice d)))))
 
-
+(defn get-available-devices []
+  (mapv str (MidiSystem/getMidiDeviceInfo)))
 
 (defn find-device [name]
   (some #(let [device (MidiSystem/getMidiDevice %)]
           (when (and (.contains (.toString %) name)
-                     (not (= 0 (.getMaxTransmitters device))))
+                     (not (> (.getMaxTransmitters device) 0)))
             device))
         (MidiSystem/getMidiDeviceInfo)))
 
 
 (defn toggle-recording
-  ([start?]
-   (toggle-recording start? "loopMIDI Port"))
-  ([start? device-name]
-   (when start?
-     (send midi-buffer (fn [buf] [])))
-   (when-let [device (find-device device-name)]
-     (if (not (.isOpen device))
-       (.open device))
-     (if start?
-       (do
-         (.setReceiver (.getTransmitter device) record-message)
-         (prn "Listening to " device))
-       (doseq [t (.getTransmitters device)]
-         (.setReceiver t nil))))))
+  [device-name]
+  (let [start? (not @is-recording?)]
+    (if-let [device (find-device device-name)]
+      (do
+        (when (not (.isOpen device))
+          (.open device))
+        (if start?
+          (do
+            (send midi-buffer (fn [buf] []))
+            (.setReceiver (.getTransmitter device) record-message)
+            (reset! is-recording? true)
+            true)
+          (do
+            (doseq [t (.getTransmitters device)]
+              (.setReceiver t nil))
+            (reset! is-recording? false)
+            false)))
+      (prn (str "Could not find device " device-name)))))
 
 (defn start-recording
   ([]

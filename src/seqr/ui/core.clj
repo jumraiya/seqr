@@ -5,7 +5,7 @@
    [seqr.ui.utils :as utils]
    [seqr.ui.menu-bar :as menu-bar]
    [seqr.ui.sequencer-controls :as controls])
-  (:import (javax.swing AbstractAction JComponent JFrame KeyStroke JTextPane SwingUtilities)
+  (:import (javax.swing AbstractAction JComponent JFrame KeyStroke JTextPane SwingUtilities JPanel BoxLayout)
            (java.awt BorderLayout Color Dimension Point)
            (com.formdev.flatlaf FlatDarkLaf)))
 
@@ -46,9 +46,16 @@
         clip-table (clip-table/create state)
         _ (add-key-bindings
            clip-pane [text-view table-view config] (-> clip-table (.getViewport) (.getView)) config)
+        menus (menu-bar/build state)
+        controls (controls/mk-bar)
+        top-bar (JPanel.)
         content (doto (.getContentPane frame)
-                  ;(.add (menu-bar/build state) BorderLayout/NORTH)
-                  (.add (controls/mk-bar) BorderLayout/NORTH)
+                  (.add (doto top-bar
+                          (.setAlignmentX JPanel/LEFT_ALIGNMENT)
+                          (.setLayout (BoxLayout. top-bar BoxLayout/Y_AXIS))
+                          (.add menus)
+                          (.add controls))
+                        BorderLayout/NORTH)
                   (.add editor BorderLayout/WEST)
                   (.add clip-table BorderLayout/EAST))]
     (doto frame

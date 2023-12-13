@@ -112,6 +112,32 @@
                        new-clip)))))
     (isCellEditable [row col]
       true)))
+#trace
+ (defn- shift-clip [editor text-editor table-editor ui-state direction]
+   (let [[bar note] (if (= text-editor (-> editor (.getViewport) (.getView)))
+                      (some
+                       (fn [[bar locs]]
+                         (some
+                          #(when (and (>= (.getCaretPosition text-editor)
+                                          (-> % second first))
+                                      (<= (.getCaretPosition text-editor)
+                                          (-> % second second)))
+                             [bar (first %)])
+                          locs))
+                       (:positions @cur-clip))
+                      (when (-> table-editor
+                                (.getModel)
+                                (.getValueAt (.getSelectedRow table-editor)
+                                             (.getSelectedColumn table-editor))
+                                empty? not)
+                        [(inc (.getSelectedRow table-editor))
+                         (inc (.getSelectedColumn table-editor))]))]
+     (when (and bar note)
+       (let [point (helper/get-point bar note (-> @cur-clip :data :div))
+             new-clip  (if (= :left direction)
+                         (clip/shift-left (:data @cur-clip) point)
+                         (clip/shift-right (:data @cur-clip) point))]
+         (save-clip ui-state new-clip)))))
 
 (defn- add-keybindings [ui-state editor text table config-table]
   (utils/add-key-action config-table "control DOWN" "focus-editor"
@@ -138,6 +164,13 @@
                                (.getText text)
                                config)))))
 
+  (doseq [c [text table]]
+    (utils/add-key-action c "shift control LEFT" "shift-left"
+      (shift-clip editor text table ui-state :left))
+
+    (utils/add-key-action c "shift control RIGHT" "shift-right"
+      (shift-clip editor text table ui-state :right)))
+  
   #_(doseq [c [table config-table]]
       (utils/add-key-action c "control S" "save-clip"
                             (save-clip ui-state))))
@@ -158,6 +191,7 @@
             (when hasFocus
               (.setBorder f (LineBorder. Color/YELLOW 2)))            
             f))))))
+
 
 (defn create-editor [state]
   (let [text-editor (doto (utils/text-pane)

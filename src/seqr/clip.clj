@@ -327,13 +327,13 @@
     midi-fn))
 
 
-(defn build-from-midi [bpm {:keys [div] :as clip}]
+(defn build-from-midi [bpm midi-interpreter {:keys [div] :as clip}]
   (let [buf (midi/get-quantized-buffer bpm div)
-        midi-fn (midi-interpreter clip)
         clip (reduce dissoc clip (filter number? (keys clip)))
         clip (reduce
               (fn [clip [p msgs]]
-                (let [actions (vec (filter (comp not empty?) (map #(midi-fn % clip) msgs)))]
+                (let [actions (vec (filter (comp not empty?)
+                                           (map #(midi-interpreter % clip) msgs)))]
                   (if (not (empty? actions))
                     (assoc-in clip (get-pos p div) actions)
                     clip)))
