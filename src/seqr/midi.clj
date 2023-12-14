@@ -21,15 +21,18 @@
          "max transmitters" (.getMaxTransmitters (MidiSystem/getMidiDevice d)))))
 
 (defn get-available-devices []
-  (mapv str (MidiSystem/getMidiDeviceInfo)))
+  (into [] (comp
+            (map #(vector % (MidiSystem/getMidiDevice %)))
+            (filter #(< (.getMaxTransmitters (second %)) 0))
+            (map #(str (first %))))
+        (MidiSystem/getMidiDeviceInfo)))
 
 (defn find-device [name]
   (some #(let [device (MidiSystem/getMidiDevice %)]
           (when (and (.contains (.toString %) name)
-                     (not (> (.getMaxTransmitters device) 0)))
+                     (< (.getMaxTransmitters device) 0))
             device))
         (MidiSystem/getMidiDeviceInfo)))
-
 
 (defn toggle-recording
   [device-name]

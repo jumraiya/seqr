@@ -18,6 +18,8 @@
 (defn interpret-midi [{:keys [interpreter] :as clip} msg]
   ((get @midi-interpreters interpreter) msg clip))
 
+(defn get-interpreters []
+  (keys @interpreters))
 
 (defn note [{:keys [action synth] :as data}]
   (let [n (mu/note action)

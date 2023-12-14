@@ -29,8 +29,11 @@
     (.close dest)
     (swap! destinations dissoc name)))
 
+(defn get-destinations []
+  (keys @destinations))
+
 (defn connect! [^String host ^Integer port name]
- (try
+  (try
     (let [ch (doto (SocketChannel/open)
                (.connect (InetSocketAddress. host port)))]
       (.setSoTimeout (.socket ch) 2000)

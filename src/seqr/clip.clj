@@ -4,6 +4,7 @@
             [seqr.helper :refer [get-pos get-point]]
             [seqr.music :as m]
             [seqr.midi :as midi]
+            [seqr.interpreters :as interp]
             [seqr.sc :as sc]))
 
 (def t-word ::word) ;; [0-9A-Za-z]+
@@ -327,13 +328,13 @@
     midi-fn))
 
 
-(defn build-from-midi [bpm midi-interpreter {:keys [div] :as clip}]
+(defn build-from-midi [bpm {:keys [div] :as clip}]
   (let [buf (midi/get-quantized-buffer bpm div)
         clip (reduce dissoc clip (filter number? (keys clip)))
         clip (reduce
               (fn [clip [p msgs]]
                 (let [actions (vec (filter (comp not empty?)
-                                           (map #(midi-interpreter % clip) msgs)))]
+                                           (map #(interp/interpret-midi clip %) msgs)))]
                   (if (not (empty? actions))
                     (assoc-in clip (get-pos p div) actions)
                     clip)))

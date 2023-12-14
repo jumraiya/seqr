@@ -2,6 +2,7 @@
   (:require
    [seqr.ui.utils :as utils]
    [seqr.ui.editor :as editor]
+   [seqr.clip :as clip]
    [seqr.helper :as helper]
    [seqr.midi :as midi]
    [seqr.sequencer :as sequencer])
@@ -54,10 +55,14 @@
 
 (defn mk-bar []
   (let [play-btn (JButton. "Start")
+        bpm-label (JLabel. "BPM:")
+        bpm-input (JTextField. (str (sequencer/get-bpm)))
         midi-label (JLabel. "Input MIDI Device")
         midi-inputs (reset! midi-input-list (doto (JComboBox. (mk-midi-device-list-model))
                                               (.setEditable false)))
-        toggle-midi (JButton. "Record MIDI")]
+        reload-midi-devices-btn (JButton. "Refresh")
+        toggle-midi (JButton. "Record MIDI")
+        mk-clip (JButton. "Make Clip from MIDI")]
     (utils/add-action-listener play-btn
                                (try
                                  (sequencer/start|pause)
@@ -75,8 +80,19 @@
                                      (.setText toggle-midi "Stop Recording")
                                      (.setText toggle-midi "Record MIDI")))
                                  (catch Exception e)))
+    (utils/add-action-listener reload-midi-devices-btn
+      (.repaint midi-inputs))
+    (utils/add-action-listener mk-clip
+      (editor/set-clip
+       (clip/build-from-midi (sequencer/get-bpm) (editor/get-cur-clip))))
+    (utils/add-key-action bpm-input "ENTER" "set-bpm"
+      (sequencer/set-bpm (Integer/parseInt (.getText bpm-input))))
     (doto (JPanel. (FlowLayout. FlowLayout/LEFT 10 10))
       (.add play-btn)
+      (.add bpm-label)
+      (.add bpm-input)
       (.add midi-label)
       (.add midi-inputs)
-      (.add toggle-midi))))
+      (.add reload-midi-devices-btn)
+      (.add toggle-midi)
+      (.add mk-clip))))

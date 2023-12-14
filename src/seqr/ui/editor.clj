@@ -2,6 +2,7 @@
   (:require
    [seqr.clip :as clip]
    [seqr.connections :as conn]
+   [seqr.interpreters :as inter]
    [seqr.helper :as helper]
    [seqr.ui.clip-config :as clip-config]
    [seqr.ui.utils :as utils]
@@ -44,6 +45,9 @@
 (defonce ^:private name-counter (atom 0))
 
 (defonce ^:private active-cell (atom nil))
+
+(defn get-cur-clip []
+  (:data @cur-clip))
 
 (def focus-listener
   (reify FocusListener
@@ -112,7 +116,7 @@
                        new-clip)))))
     (isCellEditable [row col]
       true)))
-#trace
+
  (defn- shift-clip [editor text-editor table-editor ui-state direction]
    (let [[bar note] (if (= text-editor (-> editor (.getViewport) (.getView)))
                       (some
@@ -214,7 +218,8 @@
                (.setPreferredSize (Dimension. 800 500)))
         _ (reset! clip-editor pane)
         config (clip-config/build-table
-                cur-clip state save-clip pane ["sc"] ["note" "scale"])
+                cur-clip state save-clip pane
+                (conn/get-destinations) (inter/get-interpreters))
         _ (reset! clip-config-editor config)
         _ (add-keybindings state pane text-editor table-editor (.getView (.getViewport config)))
         split-pane (doto (JSplitPane. JSplitPane/VERTICAL_SPLIT true config pane)

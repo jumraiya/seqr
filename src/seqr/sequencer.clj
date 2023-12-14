@@ -131,25 +131,33 @@
                     true))
                 (println "cannot fit actions"))))))))
 
+(defn set-bpm [bpm]
+  (send state #(-> %
+                   (assoc :bpm bpm)
+                   (assoc :period (long (/ 60000 bpm (:div %)))))))
+
+(defn get-bpm []
+  (:bpm @state 80))
+
 (defn save-clip [{:keys [name div point dest] :as clip} & [play?]]
   (when (and name div point dest)
-      (when-let [slot (or (get-in @state [:clip-slots (:name clip)])
-                          (first (:available-slots @state)))]
-        (send state #(-> %
-                         (update :available-slots disj slot)
-                         (update :clip-slots assoc (:name clip) slot)))
-        (save-clip-to-buffer slot clip)
-        (assign-sender-clip slot clip)
-        (when (or play? (contains? (:active-slots @state) slot))
-          (send state update :active-slots disj slot)
-          ;(await state)
-          (send state #(let [new-state (update % :div helper/lcmv (:div clip))]
-                         (-> new-state
-                             (update :size
-                                     max (dec (* (:point clip)
-                                                 (/ (:div new-state) (:div clip)))))
-                             (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state))))
-                             (update :active-slots conj slot))))))))
+    (when-let [slot (or (get-in @state [:clip-slots (:name clip)])
+                        (first (:available-slots @state)))]
+      (send state #(-> %
+                       (update :available-slots disj slot)
+                       (update :clip-slots assoc (:name clip) slot)))
+      (save-clip-to-buffer slot clip)
+      (assign-sender-clip slot clip)
+      (when (or play? (contains? (:active-slots @state) slot))
+        (send state update :active-slots disj slot)
+                                        ;(await state)
+        (send state #(let [new-state (update % :div helper/lcmv (:div clip))]
+                       (-> new-state
+                           (update :size
+                                   max (dec (* (:point clip)
+                                               (/ (:div new-state) (:div clip)))))
+                           (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state))))
+                           (update :active-slots conj slot))))))))
 
 (defn set-clip-active [name active?]
   (when-let [slot (get-in @state [:clip-slots name])]
