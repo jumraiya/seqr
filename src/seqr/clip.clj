@@ -27,6 +27,8 @@
 
 (def t-paren-close ::paren-close) ;; )
 
+(def t-single-quote ::single-quote)
+
 (def t-options-boundary ::options-boundary)
 
 (def t-unknown ::unknown)
@@ -50,8 +52,8 @@
 (defn- next-token [text]
   (if text
     (let [text (.trim text)
-          [match options rest bar bracket-open bracket-close brace-open brace-close paren-open paren-close word]
-          (re-find #"(%)|(:[0-9]+)|(\|)|(\[)|(\])|(\{)|(\})|(\()|(\))|([^\s\[\]\{\}\(\)]+)" text)]
+          [match options rest bar bracket-open bracket-close brace-open brace-close paren-open paren-close single-quote word]
+          (re-find #"(%)|(:[0-9]+)|(\|)|(\[)|(\])|(\{)|(\})|(\()|(\))|(\')|([^\s\[\]\{\}\(\)\"]+)" text)]
       [(cond
          (-> options nil? not) {:type t-options-boundary :val "%"}
          (-> rest nil? not) {:type t-rest :val (Integer/parseInt (.substring rest 1))}
@@ -62,6 +64,7 @@
          (-> brace-close nil? not) {:type t-brace-close :val "}"}
          (-> paren-open nil? not) {:type t-paren-open :val "("}
          (-> paren-close nil? not) {:type t-paren-close :val ")"}
+         (-> single-quote nil? not) {:type t-single-quote :val "\""}
          (-> word nil? not) {:type t-word
                              :val (cond
                                     (re-matches #"-?[0-9]+\.[0-9]+" word)
@@ -89,6 +92,9 @@
         text
         (recur lvl text)))))
 
+(defn- read-quoted-value [text]
+  (let [v (re-find #"(?)[^\']+" text)]
+    [v (subs text (inc (.length ^String v)))]))
 
 (defn- add-rest [token text & {:keys [point div] :as clip}]
   (let [rest (:val token)
@@ -122,6 +128,8 @@
 (defn- add-map-val [data text key & [dynamic?]]
   (let [[token text] (next-token text)]
     (condp = (:type token)
+      t-single-quote (let [[v text] (read-quoted-value text)]
+                       (add-map-key (assoc data key v) text dynamic?))
       t-word (add-map-key (assoc data key (:val token)) text dynamic?)
       t-paren-open (let [a-str (str "( " text)
                          xform (read-string a-str)]
@@ -242,7 +250,12 @@
                                        (fn? v) (fn-to-str v)
                                        true v)]))
                               clip))
-        options-str (str (-> options
+        options-str (str (-> (clojure.walk/postwalk
+                              #(if (and (string? %)
+                                        (clojure.string/includes? % " "))
+                                 (str "'" % "'")
+                                 %)
+                              options)
                              str
                              (clojure.string/replace "," "\n")
                              (clojure.string/replace "\"" ""))
