@@ -45,29 +45,52 @@
   (doseq [i (range MAX-CLIP-ACTIONS)]
     (Arrays/fill (aget buffer slot i) (byte 0))))
 
-(defn- do-send [num local-counter counter]
-  (vreset! local-counter @counter)
-  (doseq [[slot div size dest] (get-in @sender-threads [num :clips])]
-    (let [rel-div (/ (:div @state) div)
-          c (dec @local-counter)]
-      (when (and (contains? (:active-slots @state) slot)
-                 (= 0 (mod c rel-div))
-                 (>= c 0))
-        (loop [offset 0]
-          (let [point (/ c rel-div)
-                point (if (>= point size)
-                        (mod point size)
-                        point)
-                len (-> (short 0)
-                        (bit-or (aget buffer slot point (inc offset)))
-                        (bit-shift-left 8)
-                        (bit-or (aget buffer slot point offset)))]
-            (when (> len 0)
-              (conn/send! dest (aget buffer slot point) (+ offset 2) len))
-            (if (and (< (+ offset len 3) MAX-ACTION-LEN)
-                     (> len 0))
-              (recur (+ offset len 3))
-              nil)))))))
+(defn- serialize-actions [slot point clip]
+  (let [[b n] (helper/get-pos point (:div clip))]
+    (when-let [actions (get-in clip [b n])]
+      (loop [offset 0 actions actions]
+        (let [[action & actions] actions
+              bytes (->> action (in/interpret clip) (se/serialize clip))
+              len (alength bytes)
+              next-offset (+ offset len 3)
+              a (unchecked-byte len)
+              b (-> len (unsigned-bit-shift-right 8) unchecked-byte)
+              bytes (into [a b] bytes)]
+          (if (<= next-offset MAX-ACTION-LEN)
+            (do
+              (doseq [i (range (count bytes))]
+                (aset buffer slot (dec point) (+ offset i) (nth bytes i)))
+              (if (seq actions)
+                (recur next-offset actions)
+                true))
+            (println "cannot fit actions")))))))
+
+ (defn- do-send [num local-counter counter]
+   (vreset! local-counter @counter)
+   (doseq [[slot div size dest clip] (get-in @sender-threads [num :clips])]
+     (let [rel-div (/ (:div @state) div)
+           c (dec @local-counter)]
+       (when (and (contains? (:active-slots @state) slot)
+                  (= 0 (mod c rel-div))
+                  (>= c 0))
+         (loop [offset 0]
+           (let [point (/ c rel-div)
+                 point (if (>= point size)
+                         (mod point size)
+                         point)
+                 len (-> (short 0)
+                         (bit-or (aget buffer slot point (inc offset)))
+                         (bit-shift-left 8)
+                         (bit-or (aget buffer slot point offset)))]
+             (when (> len 0)
+               (conn/send! dest (aget buffer slot point) (+ offset 2) len)
+               (when (contains? (:dynamic clip) (inc point))
+                 (future
+                   (serialize-actions slot (inc point) clip))))
+             (when (and (< (+ offset len 3) MAX-ACTION-LEN)
+                        (> len 0))
+               (recur (+ offset len 3)))))))))
+
 
 (defn sender-thread [num counter]
   (let [local-counter (volatile! 0)]
@@ -87,7 +110,7 @@
             (prn e)
             (println (str "Terminating " (.getName this)))))))))
 
-(defn- assign-sender-clip [slot {:keys [div point dest]}]
+(defn- assign-sender-clip [slot {:keys [div point dest] :as clip}]
   (when (and div point dest)
     (let [[sender pos] (some (fn [[num {:keys [clips]}]]
                                (some (fn [[pos [clip-slot]]]
@@ -97,7 +120,7 @@
                              @sender-threads)
           clip-size (dec point)]
       (if sender
-        (send sender-threads update-in [sender :clips] assoc pos [slot div clip-size dest])
+        (send sender-threads update-in [sender :clips] assoc pos [slot div clip-size dest clip])
         (let [next-idx  (if (< @sender-idx MAX-SENDERS)
                           (inc @sender-idx)
                           1)]
@@ -111,25 +134,9 @@
 
 (defn- save-clip-to-buffer [slot {:keys [interpreter serializer div point dest] :as clip}]
   (clear-slot slot)
-  (when (and div point) 
-      (doseq [p (range 1 point)]
-        (when-let [actions (seq (get-in clip (helper/get-pos p div)))]
-          (loop [offset 0 actions actions]
-            (let [[action & actions] actions
-                  bytes (->> action (in/interpret clip) (se/serialize clip))
-                  len (alength bytes)
-                  next-offset (+ offset len 3)
-                  a (unchecked-byte len)
-                  b (-> len (unsigned-bit-shift-right 8) unchecked-byte)
-                  bytes (into [a b] bytes)]
-              (if (<= next-offset MAX-ACTION-LEN)
-                (do
-                  (doseq [i (range (count bytes))]
-                    (aset buffer slot (dec p) (+ offset i) (nth bytes i)))
-                  (if (seq actions)
-                    (recur next-offset actions)
-                    true))
-                (println "cannot fit actions"))))))))
+  (when (and div point)
+    (doseq [p (range 1 point)]
+      (serialize-actions slot p clip))))
 
 (defn set-bpm [bpm]
   (send state #(-> %

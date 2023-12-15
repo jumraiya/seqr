@@ -1,7 +1,7 @@
 (ns seqr.clip
   (:require [clojure.string :refer [join]]
             [clojure.data :refer [diff]]
-            [seqr.helper :refer [get-pos get-point]]
+            [seqr.helper :refer [replace-syms get-pos get-point]]
             [seqr.music :as m]
             [seqr.midi :as midi]
             [seqr.interpreters :as interp]
@@ -82,15 +82,23 @@
 
 (defn- get-after-sexp [text]
   "Get the text after a sexp, this allows the parsing to continue after we encounter a clj expression"
-  (loop [lvl 0 text text]
-    (let [[token text] (next-token text)
-          lvl (condp = (:type token)
-                t-paren-open (inc lvl)
-                t-paren-close (dec lvl)
-                lvl)]
-      (if (= lvl 0)
-        text
-        (recur lvl text)))))
+  (let [s-expr (StringBuilder.)]
+    (loop [lvl 0 text text]
+      (let [[token text] (next-token text)
+            lvl (condp = (:type token)
+                  t-paren-open (inc lvl)
+                  t-paren-close (dec lvl)
+                  lvl)]
+        (if (= lvl 0)
+          [(-> (doto s-expr
+                 (.append ")"))
+               (.toString)
+               read-string
+               str)
+           text]
+          (do
+            (.append s-expr (str (:val token) " "))
+            (recur lvl text)))))))
 
 (defn- read-quoted-value [text]
   (let [v (re-find #"(?)[^\']+" text)]
@@ -110,6 +118,7 @@
         clip (update clip :point #(+ % delta))]
     (condp = (:type token)
       t-rest (add-rest token text clip)
+      t-paren-open (add-action token text clip false)
       t-word (add-action token text clip false)
       t-bracket-open (add-action token text clip true)
       t-eof clip
@@ -131,9 +140,9 @@
       t-single-quote (let [[v text] (read-quoted-value text)]
                        (add-map-key (assoc data key v) text dynamic?))
       t-word (add-map-key (assoc data key (:val token)) text dynamic?)
-      t-paren-open (let [a-str (str "( " text)
-                         xform (read-string a-str)]
-                     (add-map-key (assoc data key xform) (get-after-sexp a-str) true))
+      t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))
+                         f (eval-clj (str "(fn [bar note]" a-str ")"))]
+                     (add-map-key (assoc data key f) after true))
       t-brace-open (let [[sub text] (add-map-key {} text)]
                        (add-map-key (assoc data key sub) text dynamic?)))))
 
@@ -168,33 +177,41 @@
 (defn- eval-clj [str]
   (eval (read-string str)))
 
-(defn- add-action [token text {:keys [eval point div args] :or {args {}} :as clip} group?]
-  (let [pos (get-pos point div)
-        after-group? (= t-bracket-close (:type token))
-        [is-action? action text action-str] (condp = (:type token)
-                                              t-word [true (:val token) text (:val token)]
-                                              t-paren-open (let [a-str (str "( " text)
-                                                                 xform (read-string a-str)]
-                                                             [true xform (get-after-sexp a-str) (str xform)])
-                                              [false nil text nil])
-        clip (cond-> clip
-               is-action? (update-in pos #(conj (vec %) (merge args {:action action :action-str action-str})))
-               (= (:type token) t-paren-open) (update :dynamic conj point))
-        [token text] (next-token text)
-        clip (update clip :point (if (or group?
-                                         (= t-brace-open (:type token)))
-                                   identity
-                                   inc))]
-    (condp = (:type token)
-      t-word (add-action token text clip group?)
-      t-paren-open (add-action token text clip group?)
-      t-rest (add-rest token text clip)
-      t-bracket-open (if group?
-                       (throw (Exception. "Cannot nest group actions"))
-                       (add-action token text clip true))
-      t-bracket-close (add-action token text clip after-group?)
-      t-brace-open (add-params token text clip group? after-group?)
-      t-eof clip)))
+#_(defmacro ^:private mk-dynamic-action [xform]
+  (let [bar-sym (gensym)
+        note-sym (gensym)
+        body (replace-syms {'bar bar-sym 'note note-sym} xform)]
+    `(fn [~bar-sym ~note-sym]
+       (replace-syms
+        ~body))))
+
+ (defn- add-action [token text {:keys [eval point div args] :or {args {}} :as clip} group?]
+   (let [pos (get-pos point div)
+         after-group? (= t-bracket-close (:type token))
+         [is-action? action text action-str]
+         (condp = (:type token)
+           t-word [true (:val token) text (:val token)]
+           t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
+                          [true (eval-clj (str "(fn [bar note]" a-str ")")) after a-str])
+           [false nil text nil])
+         clip (cond-> clip
+                is-action? (update-in pos #(conj (vec %) (merge args {:action action :action-str action-str})))
+                (= (:type token) t-paren-open) (update :dynamic conj point))
+         [token text] (next-token text)
+         clip (update clip :point (if (or group?
+                                          (= t-brace-open (:type token)))
+                                    identity
+                                    inc))]
+     (condp = (:type token)
+       t-word (add-action token text clip group?)
+       t-paren-open (add-action token text clip group?)
+       t-rest (add-rest token text clip)
+       t-bracket-open (if group?
+                        (throw (Exception. "Cannot nest group actions"))
+                        (add-action token text clip true))
+       t-bracket-close (add-action token text clip after-group?)
+       t-brace-open (add-params token text clip group? after-group?)
+       t-eof clip)))
 
 (defn as-str [{:keys [div args point] :as clip} & {:keys [exclude-preamble?]}]
   (let [text (StringBuilder.)

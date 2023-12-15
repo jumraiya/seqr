@@ -9,8 +9,11 @@
 (defn register-interpreter [key f]
   (swap! interpreters assoc key f))
 
-(defn interpret [{:keys [args interpreter]} action]
-  ((get @interpreters interpreter) (merge args action)))
+ (defn interpret [{:keys [args interpreter]} action & [b n]]
+   (let [f (get @interpreters interpreter)]
+     (if (fn? (:action action))
+       (f (merge args {:action ((:action action) b n)}))
+       (f (merge args action)))))
 
 (defn register-midi-interpreter [key f]
   (swap! midi-interpreters assoc key f))

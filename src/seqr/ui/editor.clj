@@ -6,7 +6,8 @@
    [seqr.helper :as helper]
    [seqr.ui.clip-config :as clip-config]
    [seqr.ui.utils :as utils]
-   [seqr.sequencer :as sequencer])
+   [seqr.sequencer :as sequencer]
+   [seqr.music :as m])
   (:import
    (javax.swing AbstractAction JComponent JTextPane JScrollPane JSplitPane JTable KeyStroke JLabel)
    (javax.swing.table AbstractTableModel TableCellRenderer)
