@@ -4,7 +4,9 @@
   (:import
    [java.net InetSocketAddress DatagramSocket InetAddress DatagramPacket]
    [java.nio ByteBuffer]
-   [java.nio.channels SocketChannel]))
+   [java.nio.channels SocketChannel]
+   [java.util.concurrent.locks ReentrantLock]
+   [java.util.concurrent TimeUnit]))
 
 
 (defonce ^:private destinations (atom {}))
@@ -15,6 +17,8 @@
 (defonce ^:private connections (atom {}))
 
 (defonce ^:private serializers (atom {}))
+
+(defonce lock (ReentrantLock. true))
 
 (defn get-serializer [dest]
   (get @serializers dest))
@@ -37,7 +41,7 @@
     (let [ch (doto (SocketChannel/open)
                (.connect (InetSocketAddress. host port)))]
       (.setSoTimeout (.socket ch) 2000)
-      (swap! connections update name ch))
+      (swap! connections assoc name ch))
     (catch Exception e
       (prn "Could not form persistent connection to " name host port (.getMessage e)))))
 
@@ -58,20 +62,33 @@
             (DatagramPacket. bytes offset length
                              dest)))))
 
+(defn try-send!
+  ([conn bytes]
+   (when (.tryLock lock 10 TimeUnit/MILLISECONDS)
+       (send! conn bytes 0 (alength bytes))
+       (.unlock lock)))
+  ([conn bytes offset length]
+   (when-let [dest (get @destinations conn)]
+     (when (.tryLock lock 10 TimeUnit/MILLISECONDS)
+         (.send @data-socket
+                (DatagramPacket. bytes offset length
+                                 dest))
+         (.unlock lock)))))
+
 #_(defn send-and-receive! [^clojure.lang.Keyword conn bytes]
-  (when-let [conn (get @connections conn)]
-    (let [write-buf (ByteBuffer/wrap bytes)]
-      (sched/schedule-task
-       #(try
-          (let [buf (ByteBuffer/allocate 4096)
-                _ (.read conn buf)
-                data (into [] (.array buf))]
-            (prn data)
-            data)
-          (catch Exception e
-            (prn "Nothing received after 2 sec" (.getMessage e))))
-       0)
-      (.write conn write-buf))))
+    (when-let [conn (get @connections conn)]
+      (let [write-buf (ByteBuffer/wrap bytes)]
+        (sched/schedule-task
+         #(try
+            (let [buf (ByteBuffer/allocate 4096)
+                  _ (.read conn buf)
+                  data (into [] (.array buf))]
+              (prn data)
+              data)
+            (catch Exception e
+              (prn "Nothing received after 2 sec" (.getMessage e))))
+         0)
+        (.write conn write-buf))))
 
 (defn send-and-receive! [conn bytes]
   (let [res (future

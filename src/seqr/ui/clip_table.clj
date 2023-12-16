@@ -85,8 +85,8 @@
         table "control A" "set-clip-active"
       (let [row (.getSelectedRow table)
             col (.getSelectedColumn table)]
-          (sequencer/set-clip-active (.getValueAt table-model row col) true)
-          (.fireTableDataChanged table-model)))
+        (sequencer/set-clip-active (.getValueAt table-model row col) true)
+        (.fireTableDataChanged table-model)))
     (utils/add-key-action
         table "control X" "set-clip-inactive"
       (let [row (.getSelectedRow table)

@@ -1,18 +1,21 @@
-(ns seqr.helper)
+(ns seqr.helper
+  (:import
+   (java.nio ByteBuffer)))
 
+(defonce ^:private buf (ByteBuffer/allocateDirect 2))
 
 (defn get-wrapped-point [point clip-div clip-size player-div]
   (if (> clip-size 0)
-      (let [scale (/ player-div clip-div)
-            scaled (inc (/ (dec point) scale))
-            point (if (> scaled clip-size)
-                    (let [r (mod scaled clip-size)]
-                      (if (= r 0)
-                        clip-size
-                        r))
-                    scaled)]
-        (when (int? point)
-          point))))
+    (let [scale (/ player-div clip-div)
+          scaled (inc (/ (dec point) scale))
+          point (if (> scaled clip-size)
+                  (let [r (mod scaled clip-size)]
+                    (if (= r 0)
+                      clip-size
+                      r))
+                  scaled)]
+      (when (int? point)
+        point))))
 
 (defn get-pos [beat div & {:keys [size player-div]}]
   "Given a offset in the sequence and a subdivision of pattern and sequencer, returns the corresponding bar and beat"
@@ -84,12 +87,17 @@
        ~xform)))
 
 (defn short->bytes [v]
-  (into-array Byte/TYPE
-              [(unchecked-byte v)
-               (-> v (unsigned-bit-shift-right 8) unchecked-byte)]))
+  (.putShort buf 0 v)
+  [(.get buf 0) (.get buf 1)]
+  #_(into-array Byte/TYPE
+                [(unchecked-byte v)
+                 (-> v (unsigned-bit-shift-right 8) unchecked-byte)]))
 
 (defn bytes->short [[a b]]
-  (-> (short 0)
-      (bit-or b)
-      (bit-shift-left 8)
-      (bit-or a)))
+  (.put buf 0 a)
+  (.put buf 1 b)
+  (.getShort buf 0)
+  #_(-> (short 0)
+        (bit-or b)
+        (bit-shift-left 8)
+        (bit-or a)))

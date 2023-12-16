@@ -76,7 +76,7 @@
       (prn "Error setting editor content" e))))
 
 
-(defn- save-clip [ui-state {:keys [interpreter serializer dest point name div] :as clip}]
+(defn save-clip [ui-state {:keys [interpreter serializer dest point name div] :as clip}]
   (let [clip-pos (or (some #(when (= (:name (second %)) name)
                               (first %))
                            (map-indexed vector (:clips @ui-state)))

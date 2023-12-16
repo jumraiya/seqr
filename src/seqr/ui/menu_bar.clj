@@ -1,7 +1,8 @@
 (ns seqr.ui.menu-bar
   (:require
    [seqr.clip :as clip]
-   [seqr.ui.utils :as utils])
+   [seqr.ui.utils :as utils]
+   [seqr.ui.editor :as editor])
   (:import
    (javax.swing JMenuBar JMenu JMenuItem JFileChooser)))
 
@@ -9,7 +10,11 @@
 (defn load-sketch [path editor state]
   (try
     (let [{:keys [clips]} (read-string (slurp path))]
-      (send state assoc :clips (mapv clip/parse-clip clips)))
+      (doseq [c (mapv clip/parse-clip clips)]
+          (editor/save-clip state c))
+      
+                                        ;(send state assoc :clips (mapv clip/parse-clip clips))
+      )
     (catch Exception e
       (prn "Error loading sketch" e))))
 

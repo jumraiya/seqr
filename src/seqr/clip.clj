@@ -47,7 +47,8 @@
 
 (declare add-map-val)
 
-
+(defn- eval-clj [str]
+  (eval (read-string str)))
 
 (defn- next-token [text]
   (if text
@@ -174,9 +175,6 @@
       t-rest (add-rest token text clip)
       t-eof clip)))
 
-(defn- eval-clj [str]
-  (eval (read-string str)))
-
 #_(defmacro ^:private mk-dynamic-action [xform]
   (let [bar-sym (gensym)
         note-sym (gensym)
@@ -224,11 +222,16 @@
                               action-str (->> actions
                                               (map
                                                #(let [a-params (-> (dissoc % :action :action-str) (diff common-params) first (diff args) first)]
-                                                  (str (or (:action-str %) (:action %)) (if a-params (str " " (-> a-params str (clojure.string/replace "\"" "")) " ")) " ")))
+                                                  (str (or (:action-str %) (:action %))
+                                                       (if a-params (str " " (-> a-params str
+                                                                                 (clojure.string/replace "\"" "")
+                                                                                 (clojure.string/replace "," ""))
+                                                                         " "))
+                                                       " ")))
                                               join)]
                           (.trim
                            (if multi-action?
-                             (str "[" (.trim action-str) "]" (if common-params (str " " (-> common-params str (clojure.string/replace "\"" "")))))
+                             (str "[" (.trim action-str) "]" (if common-params (str " " (-> common-params str (clojure.string/replace "\"" "") (clojure.string/replace "," "")))))
                              action-str))))
         [action-strs col-lens] (loop [actions {} lens {} p 1 last-action 0]
                                  (let [[bar note] (get-pos p div)

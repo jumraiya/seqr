@@ -7,7 +7,8 @@
    [seqr.serializers :as se])
   (:import
    (java.util Arrays)
-   (java.util.concurrent.locks LockSupport)))
+   (java.util.concurrent.locks LockSupport)
+   (java.nio ByteBuffer)))
 
 (def MAX-CLIPS 10)
 
@@ -21,7 +22,7 @@
 (defonce counter (volatile! 0))
 
 (def ^:private default-state
-  {:period 1000
+  {:period 93
    :div 4
    :size 4
    :bpm 80
@@ -53,9 +54,10 @@
               bytes (->> action (in/interpret clip) (se/serialize clip))
               len (alength bytes)
               next-offset (+ offset len 3)
-              a (unchecked-byte len)
-              b (-> len (unsigned-bit-shift-right 8) unchecked-byte)
-              bytes (into [a b] bytes)]
+              ;; a (unchecked-byte len)
+              ;; b (-> len (unsigned-bit-shift-right 8) unchecked-byte)
+              ;;bytes (into [a b] bytes)
+              bytes (into (helper/short->bytes len) bytes)]
           (if (<= next-offset MAX-ACTION-LEN)
             (do
               (doseq [i (range (count bytes))]
@@ -65,11 +67,11 @@
                 true))
             (println "cannot fit actions")))))))
 
- (defn- do-send [num local-counter counter]
-   (vreset! local-counter @counter)
+ (defn- do-send [num local-counter counter buf]
+   (.set local-counter @counter)
    (doseq [[slot div size dest clip] (get-in @sender-threads [num :clips])]
      (let [rel-div (/ (:div @state) div)
-           c (dec @local-counter)]
+           c (dec (.get local-counter))]
        (when (and (contains? (:active-slots @state) slot)
                   (= 0 (mod c rel-div))
                   (>= c 0))
@@ -78,37 +80,46 @@
                  point (if (>= point size)
                          (mod point size)
                          point)
-                 len (-> (short 0)
-                         (bit-or (aget buffer slot point (inc offset)))
-                         (bit-shift-left 8)
-                         (bit-or (aget buffer slot point offset)))]
+                 ;; len (-> (short 0)
+                 ;;         (bit-or (aget buffer slot point (inc offset)))
+                 ;;         (bit-shift-left 8)
+                 ;;         (bit-or (aget buffer slot point offset)))
+                 len (-> buf
+                         (.get)
+                         (.put 0 (aget buffer slot point offset))
+                         (.put 1 (aget buffer slot point (inc offset)))
+                         (.getShort 0))]
              (when (> len 0)
-               (conn/send! dest (aget buffer slot point) (+ offset 2) len)
+               (conn/send! dest (aget buffer slot point)
+                           (int (+ offset 2)) (int len))
                (when (contains? (:dynamic clip) (inc point))
-                 (future
-                   (serialize-actions slot (inc point) clip))))
+                   (future
+                     (serialize-actions slot (inc point) clip))))
              (when (and (< (+ offset len 3) MAX-ACTION-LEN)
                         (> len 0))
                (recur (+ offset len 3)))))))))
 
 
 (defn sender-thread [num counter]
-  (let [local-counter (volatile! 0)]
-    (proxy [Thread] [^String (str "sender-" num)]
-      (run []
-        (try
-          (while (not (:terminate? @state))
-            (if (:running? @state)
-              (if (= @local-counter @counter)
-                (Thread/onSpinWait)
-                (do-send num local-counter counter ))
-              (LockSupport/park this)))
-          (doseq [[slot] (get-in @sender-threads [num :clips])]
-            (send state update :active-slots disj slot))
-          ;(send sender-threads dissoc num)
-          (catch Exception e
-            (prn e)
-            (println (str "Terminating " (.getName this)))))))))
+  (proxy [Thread] [^String (str "sender-" num)]
+    (run []
+      (try
+        (let [local-counter (doto (ThreadLocal.)
+                              (.set 0))
+              buf (doto (ThreadLocal.)
+                    (.set (ByteBuffer/allocateDirect 2)))]
+            (while (not (:terminate? @state))
+              (if (:running? @state)
+                (if (= (.get local-counter) @counter)
+                  (Thread/onSpinWait)
+                  (do-send num local-counter counter buf))
+                (LockSupport/park this))))
+        (doseq [[slot] (get-in @sender-threads [num :clips])]
+          (send state update :active-slots disj slot))
+                                        ;(send sender-threads dissoc num)
+        (catch Exception e
+          (prn e)
+          (println (str "Terminating " (.getName this))))))))
 
 (defn- assign-sender-clip [slot {:keys [div point dest] :as clip}]
   (when (and div point dest)
@@ -125,11 +136,11 @@
                           (inc @sender-idx)
                           1)]
           (if (contains? @sender-threads next-idx)
-            (send sender-threads update-in [next-idx :clips] conj [slot div clip-size dest])
+            (send sender-threads update-in [next-idx :clips] conj [slot div clip-size dest clip])
             (send sender-threads
                   assoc next-idx {:thread (cond-> (sender-thread next-idx counter)
                                             (:running? @state) (.start))
-                                  :clips [[slot div clip-size dest]]}))
+                                  :clips [[slot div clip-size dest clip]]}))
           (send sender-idx (constantly next-idx)))))))
 
 (defn- save-clip-to-buffer [slot {:keys [interpreter serializer div point dest] :as clip}]
@@ -179,9 +190,11 @@
         (await state)
         (send state
               #(let [new-state (update % :div helper/lcmv div)]
-                 (update new-state :size max
-                         (dec (* point
-                                 (/ (:div new-state) div))))))
+                 (->  new-state
+                      (update :size max
+                              (dec (* point
+                                      (/ (:div new-state) div))))
+                      (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state)))))))
         (send state update :active-slots conj slot))
       (when-not active?
         (send state assoc :size
@@ -190,6 +203,7 @@
                                        (/ (:div @state) div)))))
                       0
                       (mapcat :clips (vals @sender-threads)))
+              
               )))))
 
 (defn rm-clip [name]
@@ -288,7 +302,7 @@
   (doseq [[_ {t :thread cls :clips}] @sender-threads]
     (when t
       (println (str (.getName t) " state: " (.getState t)))
-      (println (str "sender clips: " cls)))))
+      (println (str "sender clips: " (mapv butlast cls))))))
 
 (defn is-clip-active? [name]
   (contains? (:active-slots @state)

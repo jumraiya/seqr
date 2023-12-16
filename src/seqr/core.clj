@@ -5,13 +5,15 @@
    [seqr.sc :as sc]
    [seqr.connections :as conn]
    [seqr.midi :as midi]
-   [seqr.serializers :as se]))
+   [seqr.serializers :as se]
+   [seqr.ui.core :as ui]))
 
 (conn/add-destination! "localhost" 57110 "sc" se/sc-new-synth)
 
-(conn/add-destination! "localhost" 57120 "sc-lang")
+(conn/add-destination! "localhost" 57120 "sc-lang" se/sc-new-synth)
 
 (comment
+  (ui/create-ui)
   (player/ui)
   (player/stop-player)
   (player/is-running?)
