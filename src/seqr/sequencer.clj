@@ -157,6 +157,14 @@
 (defn get-bpm []
   (:bpm @state 80))
 
+(defn- get-size [state]
+  (reduce (fn [s [_ div point]]
+            (max s (* point
+                      (/ (:div state) div))))
+          0
+          (filter #(contains? (:active-slots state) (first %))
+                  (mapcat :clips (vals @sender-threads)))))
+
 (defn save-clip [{:keys [name div point dest] :as clip} & [play?]]
   (when (and name div point dest)
     (when-let [slot (or (get-in @state [:clip-slots (:name clip)])
@@ -169,13 +177,13 @@
       (when (or play? (contains? (:active-slots @state) slot))
         (send state update :active-slots disj slot)
                                         ;(await state)
-        (send state #(let [new-state (update % :div helper/lcmv (:div clip))]
+        (send state #(let [new-state (-> %
+                                         (update :div helper/lcmv (:div clip))
+                                         (update :active-slots conj slot)
+)]
                        (-> new-state
-                           (update :size
-                                   max (dec (* (:point clip)
-                                               (/ (:div new-state) (:div clip)))))
-                           (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state))))
-                           (update :active-slots conj slot))))))))
+                           (assoc :size (get-size new-state))
+                           (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state)))))))))))
 
 (defn set-clip-active [name active?]
   (when-let [slot (get-in @state [:clip-slots name])]
@@ -189,22 +197,14 @@
       (when active?
         (await state)
         (send state
-              #(let [new-state (update % :div helper/lcmv div)]
+              #(let [new-state (-> %
+                                   (update :div helper/lcmv div)
+                                   (update :active-slots conj slot))]
                  (->  new-state
-                      (update :size max
-                              (dec (* point
-                                      (/ (:div new-state) div))))
-                      (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state)))))))
-        (send state update :active-slots conj slot))
+                      (assoc :size (get-size new-state))
+                      (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state))))))))
       (when-not active?
-        (send state assoc :size
-              (reduce (fn [s [_ div point]]
-                        (max s (dec (* point
-                                       (/ (:div @state) div)))))
-                      0
-                      (mapcat :clips (vals @sender-threads)))
-              
-              )))))
+        (send state assoc :size (get-size @state))))))
 
 (defn rm-clip [name]
   (when-let [slot (get-in @state [:clip-slots name])]

@@ -1,5 +1,6 @@
 (ns seqr.connections
   (:require
+   [seqr.osc :as osc]
    [seqr.scheduler :as sched])
   (:import
    [java.net InetSocketAddress DatagramSocket InetAddress DatagramPacket]
@@ -11,14 +12,53 @@
 
 (defonce ^:private destinations (atom {}))
 
-(defonce ^:private data-socket (atom (doto (DatagramSocket. 6814)
-                                       (.setSoTimeout 2000))))
+(defonce ^:private messages (agent {}))
+
+(def MAX-MESSAGES 20)
+
+(defonce ^:private data-socket (atom (DatagramSocket. 6814)))
 
 (defonce ^:private connections (atom {}))
 
 (defonce ^:private serializers (atom {}))
 
 (defonce lock (ReentrantLock. true))
+
+(def receiver-thread nil)
+
+(defonce receiving? (agent false))
+
+(defn- recv-msg []
+  (while @receiving?
+    (try
+      (let [buf (byte-array 4096)
+            p (DatagramPacket. buf 4096)
+            _ (.receive @data-socket p)
+            {:keys [url data]} (osc/read-msg (.getData p))]
+        (send messages update url
+              (fn [m]
+                (conj
+                 (or (if (>= (count m) MAX-MESSAGES)
+                       (vec (rest m))
+                       m)
+                     [])
+                 data))))
+      (catch Exception e
+        (prn "Error receiving" (.getMessage e))))))
+
+(defn- mk-receiver-thread []
+  (send receiving? (constantly true))
+  (Thread/sleep 100)
+  (let [builder (.name (Thread/ofVirtual) "osc-receiver")]
+    (alter-var-root (var receiver-thread)
+                    (constantly
+                     (.start builder recv-msg)))))
+
+(defn reset-receiver []
+  (send receiving? (constantly false))
+  (send messages (constantly nil))
+  (Thread/sleep 100)
+  (mk-receiver-thread))
 
 (defn get-serializer [dest]
   (get @serializers dest))
@@ -35,6 +75,8 @@
 
 (defn get-destinations []
   (keys @destinations))
+
+(defn- receive-msg [])
 
 (defn connect! [^String host ^Integer port name]
   (try
@@ -91,13 +133,12 @@
         (.write conn write-buf))))
 
 (defn send-and-receive! [conn bytes]
-  (let [res (future
-              (try
-                (let [buf (byte-array 4096)
-                      p (DatagramPacket. buf 4096)
-                      _ (.receive @data-socket p)]
-                  (.getData p))
-                (catch Exception e
-                  (prn "Nothing received after 2 sec" (.getMessage e)))))]
-    (send! conn bytes)
-    res))
+  (send! conn bytes)
+  (future
+    (try
+      (let [buf (byte-array 4096)
+            p (DatagramPacket. buf 4096)
+            _ (.receive @data-socket p)]
+        (.getData p))
+      (catch Exception e
+        (prn "Nothing received after 2 sec" (.getMessage e))))))

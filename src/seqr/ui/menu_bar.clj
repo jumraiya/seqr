@@ -2,19 +2,18 @@
   (:require
    [seqr.clip :as clip]
    [seqr.ui.utils :as utils]
-   [seqr.ui.editor :as editor])
+   [seqr.ui.editor :as editor]
+   [seqr.sequencer :as sequencer])
   (:import
    (javax.swing JMenuBar JMenu JMenuItem JFileChooser)))
 
 
 (defn load-sketch [path editor state]
   (try
-    (let [{:keys [clips]} (read-string (slurp path))]
+    (let [{:keys [bpm clips]} (read-string (slurp path))]
       (doseq [c (mapv clip/parse-clip clips)]
           (editor/save-clip state c))
-      
-                                        ;(send state assoc :clips (mapv clip/parse-clip clips))
-      )
+      (sequencer/set-bpm (or bpm 80)))
     (catch Exception e
       (prn "Error loading sketch" e))))
 
@@ -23,7 +22,7 @@
     (let [clips (reduce
                  #(conj %1 (second (clip/as-str %2)))
                   [] (:clips @state))
-          sketch {:clips clips}]
+          sketch {:clips clips :bpm (sequencer/get-bpm)}]
       (spit path (pr-str sketch)))
     (catch Exception e
       (prn "Error saving sketch" e))))

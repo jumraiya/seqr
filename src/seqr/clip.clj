@@ -54,7 +54,7 @@
   (if text
     (let [text (.trim text)
           [match options rest bar bracket-open bracket-close brace-open brace-close paren-open paren-close single-quote word]
-          (re-find #"(%)|(:[0-9]+)|(\|)|(\[)|(\])|(\{)|(\})|(\()|(\))|(\')|([^\s\[\]\{\}\(\)\"]+)" text)]
+          (re-find #"(%)|(:[0-9]+)|(\|)|(\[)|(\])|(\{)|(\})|(\()|(\))|(\')|([^\s\[\]\{\}\(\)']+)" text)]
       [(cond
          (-> options nil? not) {:type t-options-boundary :val "%"}
          (-> rest nil? not) {:type t-rest :val (Integer/parseInt (.substring rest 1))}
@@ -65,7 +65,7 @@
          (-> brace-close nil? not) {:type t-brace-close :val "}"}
          (-> paren-open nil? not) {:type t-paren-open :val "("}
          (-> paren-close nil? not) {:type t-paren-close :val ")"}
-         (-> single-quote nil? not) {:type t-single-quote :val "\""}
+         (-> single-quote nil? not) {:type t-single-quote :val "'"}
          (-> word nil? not) {:type t-word
                              :val (cond
                                     (re-matches #"-?[0-9]+\.[0-9]+" word)
