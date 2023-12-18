@@ -21,6 +21,16 @@
 
 (defonce counter (volatile! 0))
 
+(defonce ^:private callbacks (atom {}))
+
+(def clip-saved ::clip-saved)
+
+(def clip-made-active ::clip-made-active)
+
+(def clip-made-inactive ::clip-made-inactive)
+
+(def events [clip-saved clip-made-active clip-made-inactive])
+
 (def ^:private default-state
   {:period 93
    :div 4
@@ -179,20 +189,21 @@
                                         ;(await state)
         (send state #(let [new-state (-> %
                                          (update :div helper/lcmv (:div clip))
-                                         (update :active-slots conj slot)
-)]
+                                         (update :active-slots conj slot))]
                        (-> new-state
                            (assoc :size (get-size new-state))
-                           (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state)))))))))))
+                           (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state))))))))
+      (doseq [f (get @callbacks clip-saved)]
+        (f clip)))))
 
 (defn set-clip-active [name active?]
   (when-let [slot (get-in @state [:clip-slots name])]
-    (when-let [[div point] (some (fn [[_num {:keys [clips]}]]
-                                   (some (fn [[_pos [clip-slot div point]]]
-                                           (when (= slot clip-slot)
-                                             [div point]))
-                                         (map-indexed vector clips)))
-                                 @sender-threads)]
+    (when-let [[num pos div point] (some (fn [[num {:keys [clips]}]]
+                                           (some (fn [[pos [clip-slot div point]]]
+                                                   (when (= slot clip-slot)
+                                                     [num pos div point]))
+                                                 (map-indexed vector clips)))
+                                         @sender-threads)]
       (send state update :active-slots disj slot)
       (when active?
         (await state)
@@ -202,9 +213,13 @@
                                    (update :active-slots conj slot))]
                  (->  new-state
                       (assoc :size (get-size new-state))
-                      (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state))))))))
+                      (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state)))))))
+        (doseq [f (get @callbacks clip-made-active)]
+          (f (get-in @sender-threads [num :clips pos]))))
       (when-not active?
-        (send state assoc :size (get-size @state))))))
+        (send state assoc :size (get-size @state))
+        (doseq [f (get @callbacks clip-made-inactive)]
+          (f (get-in @sender-threads [num :clips pos])))))))
 
 (defn rm-clip [name]
   (when-let [slot (get-in @state [:clip-slots name])]
@@ -290,6 +305,13 @@
   (send sender-idx (constantly 0))
   (send sender-threads (constantly {})))
 
+(defn reset-state []
+  (doseq [i (range MAX-CLIPS)]
+    (clear-slot i))
+  (send state (constantly default-state))
+  (send sender-idx (constantly 0))
+  (send sender-threads update-vals #(assoc % :clips [])))
+
 (defn clear-data []
   (doseq [i (range MAX-CLIPS)]
     (clear-slot i)))
@@ -307,3 +329,6 @@
 (defn is-clip-active? [name]
   (contains? (:active-slots @state)
              (get (:clip-slots @state) name)))
+
+(defn add-callback [event f]
+  (swap! callbacks update event conj f))

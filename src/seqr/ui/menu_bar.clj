@@ -40,17 +40,27 @@
           (load-sketch path editor state)
           (save-sketch path state))))))
 
+(defn- new-sketch [state]
+  (send state (constantly {:clips [] :selected-clip nil}))
+  (editor/reset-state)
+  (sequencer/reset-state))
+
 (defn build [state]
-  (let [open (JMenuItem. "Open")
+  (let [new (JMenuItem. "New")
+        open (JMenuItem. "Open")
         save-as (JMenuItem. "Save As")
         file-menu (doto (JMenu. "File")
+                    (.add new)
                     (.add open)
                     (.add save-as))]
     (utils/add-action-listener
-     open
-     (save-load-sketch (.getTopLevelAncestor open) state true))
+        new
+        (new-sketch state))
+    (utils/add-action-listener
+        open
+        (save-load-sketch (.getTopLevelAncestor open) state true))
     (utils/add-action-listener
         save-as
-      (save-load-sketch (.getTopLevelAncestor open) state false))
+        (save-load-sketch (.getTopLevelAncestor open) state false))
     (doto (JMenuBar.)
       (.add file-menu))))

@@ -4,6 +4,7 @@
    [seqr.connections :as conn]
    [seqr.serializers :as se]
    [seqr.samples :as samples]
+   [seqr.interpreters :as interp]
    [seqr.ui.core :as ui]))
 
 (conn/add-destination! "localhost" 57110 "sc" se/sc-new-synth)

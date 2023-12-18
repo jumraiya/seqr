@@ -47,8 +47,13 @@
 
 (defonce ^:private active-cell (atom nil))
 
+(declare set-clip)
+
 (defn get-cur-clip []
   (:data @cur-clip))
+
+(defn reset-state []
+  (set-clip {:div 4 :point 5 :name "new-clip"}))
 
 (def focus-listener
   (reify FocusListener

@@ -32,15 +32,18 @@
       (reify TableCellRenderer
         (getTableCellRendererComponent [this table value isSelected hasFocus row col]
           (let [f (doto (JLabel. value)
-                    (.setFont (Font. "Monospaced" Font/PLAIN 16)))]
-            (when (sequencer/is-clip-active?
-                   (.getValueAt (.getModel table) row col))
+                    (.setFont (Font. "Monospaced" Font/PLAIN 16)))
+                is-active? (sequencer/is-clip-active?
+                            (.getValueAt (.getModel table) row col))]
+            (when is-active?
               (doto f
                 (.setForeground (Color/BLACK))
                 (.setBackground (Color/GREEN))
                 (.setOpaque true)))
             (when hasFocus
-              (.setBorder f (LineBorder. Color/YELLOW 2)))            
+              (if is-active?
+                (.setBorder f (LineBorder. Color/BLACK 2))
+                (.setBorder f (LineBorder. Color/YELLOW 2))))            
             f))))))
 
 (def focus-listener
