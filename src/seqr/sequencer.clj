@@ -25,11 +25,13 @@
 
 (def clip-saved ::clip-saved)
 
+(def clip-deleted ::clip-deleted)
+
 (def clip-made-active ::clip-made-active)
 
 (def clip-made-inactive ::clip-made-inactive)
 
-(def events [clip-saved clip-made-active clip-made-inactive])
+(def events [clip-saved clip-deleted clip-made-active clip-made-inactive])
 
 (def ^:private default-state
   {:period 93
@@ -182,19 +184,23 @@
       (send state #(-> %
                        (update :available-slots disj slot)
                        (update :clip-slots assoc (:name clip) slot)))
-      (save-clip-to-buffer slot clip)
-      (assign-sender-clip slot clip)
-      (when (or play? (contains? (:active-slots @state) slot))
-        (send state update :active-slots disj slot)
+      (let [clip (reduce (fn [cl f]
+                           (f cl)) 
+                         clip
+                         (vals (get @callbacks clip-saved)))]
+        (save-clip-to-buffer slot clip)
+        (assign-sender-clip slot clip)
+        (when (or play? (contains? (:active-slots @state) slot))
+          (send state update :active-slots disj slot)
                                         ;(await state)
-        (send state #(let [new-state (-> %
-                                         (update :div helper/lcmv (:div clip))
-                                         (update :active-slots conj slot))]
-                       (-> new-state
-                           (assoc :size (get-size new-state))
-                           (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state))))))))
-      (doseq [f (get @callbacks clip-saved)]
-        (f clip)))))
+          (send state #(let [new-state (-> %
+                                           (update :div helper/lcmv (:div clip))
+                                           (update :active-slots conj slot))]
+                         (-> new-state
+                             (assoc :size (get-size new-state))
+                             (assoc :period (long (/ 60000 (:bpm new-state)
+                                                     (:div new-state)))))))))
+      )))
 
 (defn set-clip-active [name active?]
   (when-let [slot (get-in @state [:clip-slots name])]
@@ -214,20 +220,28 @@
                  (->  new-state
                       (assoc :size (get-size new-state))
                       (assoc :period (long (/ 60000 (:bpm new-state) (:div new-state)))))))
-        (doseq [f (get @callbacks clip-made-active)]
+        (doseq [f (vals (get @callbacks clip-made-active))]
           (f (get-in @sender-threads [num :clips pos]))))
       (when-not active?
         (send state assoc :size (get-size @state))
-        (doseq [f (get @callbacks clip-made-inactive)]
+        (doseq [f (vals (get @callbacks clip-made-inactive))]
           (f (get-in @sender-threads [num :clips pos])))))))
 
 (defn rm-clip [name]
   (when-let [slot (get-in @state [:clip-slots name])]
-    (clear-slot slot)
-    (send state #(-> %
-                     (update :clip-slots dissoc name)
-                     (update :available-slots conj slot)
-                     (update :active-slots disj slot)))))
+    (when-let [clip (some (fn [[num {:keys [clips]}]]
+                            (some (fn [[_ [clip-slot _ _ _ clip]]]
+                                    (when (= slot clip-slot)
+                                      clip))
+                                  (map-indexed vector clips)))
+                          @sender-threads)]
+        (clear-slot slot)
+        (send state #(-> %
+                         (update :clip-slots dissoc name)
+                         (update :available-slots conj slot)
+                         (update :active-slots disj slot)))
+        (doseq [f (vals (get @callbacks clip-deleted))]
+          (f clip)))))
 
 (defn- mk-counter-thread []
   (proxy [Thread] []
@@ -330,5 +344,5 @@
   (contains? (:active-slots @state)
              (get (:clip-slots @state) name)))
 
-(defn add-callback [event f]
-  (swap! callbacks update event conj f))
+(defn register-callback [event key f]
+  (swap! callbacks assoc-in [event key] f))

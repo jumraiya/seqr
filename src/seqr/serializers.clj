@@ -6,7 +6,7 @@
 
 (defn register-serializer [key f]
   (swap! serializers assoc key f))
-
+#trace
 (defn serialize [{:keys [serializer dest]} action]
   (let [f (or (get @serializers serializer)
               (conn/get-serializer dest))]

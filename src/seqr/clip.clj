@@ -4,8 +4,7 @@
             [seqr.helper :refer [replace-syms get-pos get-point]]
             [seqr.music :as m]
             [seqr.midi :as midi]
-            [seqr.interpreters :as interp]
-            [seqr.sc :as sc]))
+            [seqr.interpreters :as interp]))
 
 (def t-word ::word) ;; [0-9A-Za-z]+
 
@@ -351,14 +350,6 @@
         clip-size (* div (dec bar) step)
         clip-size (+ clip-size (* step note))]
     clip-size))
-
-(defn midi-interpreter [clip]
-  (let [{:keys [name ns]} (meta (:eval clip))
-        e (str ns "/" name)
-        midi-fn (condp = e
-                  "seqr.sc/note" seqr.sc/midi->note
-                  false)]
-    midi-fn))
 
 
 (defn build-from-midi [bpm {:keys [div] :as clip}]

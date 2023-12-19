@@ -90,7 +90,7 @@
                           b))
                       (get drum-kits kit))]
     (if buf-num
-      (assoc data :args ["num" buf-num])
+      (assoc data :args (reduce into ["num" buf-num] (dissoc data :action :action-str "kit")))
       data)))
 
 (interp/register-interpreter "drum" drum)

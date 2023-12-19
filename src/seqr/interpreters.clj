@@ -32,7 +32,7 @@
         args (vec (flatten
                    (into []
                          (assoc
-                          (reduce dissoc data [:action :synth :node-id :add-action :target])
+                          (reduce dissoc data [:action "synth" :node-id "add-action" "target"])
                           "freq" freq
                           "note" n))))
         params (merge data {:action action

@@ -83,7 +83,8 @@
                          JOptionPane/YES_NO_CANCEL_OPTION)]
              (when (and clip-pos (= choice JOptionPane/YES_OPTION))
                (send state update :clips
-                     #(into (subvec % 0 clip-pos) (subvec % (inc clip-pos)))))))
+                     #(into (subvec % 0 clip-pos) (subvec % (inc clip-pos))))
+               (sequencer/rm-clip clip-name))))
     (utils/add-key-action
         table "control A" "set-clip-active"
       (let [row (.getSelectedRow table)

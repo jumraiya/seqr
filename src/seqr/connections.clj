@@ -34,7 +34,7 @@
       (let [buf (byte-array 4096)
             p (DatagramPacket. buf 4096)
             _ (.receive @data-socket p)
-            {:keys [url data]} (osc/read-msg (.getData p))]
+            {:keys [url data] :as msg} (osc/read-msg (.getData p))]
         (send messages update url
               (fn [m]
                 (conj
@@ -42,7 +42,7 @@
                        (vec (rest m))
                        m)
                      [])
-                 data))))
+                 msg))))
       (catch Exception e
         (prn "Error receiving" (.getMessage e))))))
 
@@ -60,6 +60,12 @@
   (Thread/sleep 100)
   (mk-receiver-thread))
 
+(defn receive-osc-message [url]
+  (let [m (peek (get @messages url))]
+    (when m
+        (send messages update url pop))
+    m))
+
 (defn get-serializer [dest]
   (get @serializers dest))
 
@@ -75,8 +81,6 @@
 
 (defn get-destinations []
   (keys @destinations))
-
-(defn- receive-msg [])
 
 (defn connect! [^String host ^Integer port name]
   (try

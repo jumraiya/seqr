@@ -5,13 +5,18 @@
    [seqr.serializers :as se]
    [seqr.samples :as samples]
    [seqr.interpreters :as interp]
-   [seqr.ui.core :as ui]))
+   [seqr.ui.core :as ui]
+   [seqr.sc :as sc]))
 
 (conn/add-destination! "localhost" 57110 "sc" se/sc-new-synth)
 
 (conn/add-destination! "localhost" 57120 "sc-lang" se/sc-new-synth)
 
 (samples/reset-drum-kits)
+
+(conn/reset-receiver)
+
+(sc/register-callbacks)
 
 (comment
   (ui/create-ui))
