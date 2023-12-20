@@ -18,6 +18,8 @@
 
 (sc/register-callbacks)
 
+;(sc/reset-audio-buses)
+
 (comment
   (ui/create-ui))
 

@@ -1,7 +1,6 @@
 (ns seqr.connections
   (:require
-   [seqr.osc :as osc]
-   [seqr.scheduler :as sched])
+   [seqr.osc :as osc])
   (:import
    [java.net InetSocketAddress DatagramSocket InetAddress DatagramPacket]
    [java.nio ByteBuffer]
@@ -16,7 +15,7 @@
 
 (def MAX-MESSAGES 20)
 
-(defonce ^:private data-socket (atom (DatagramSocket. 6814)))
+(defonce ^:private data-socket nil (atom (DatagramSocket. 6814)))
 
 (defonce ^:private connections (atom {}))
 

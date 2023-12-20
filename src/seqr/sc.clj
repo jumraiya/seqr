@@ -14,6 +14,10 @@
 (def stop-gated
   (osc/builder "/stop_gated 0"))
 
+(def eval-sc-code (osc/builder "/eval_code ?code"))
+
+(defonce available-audio-buses (atom #{}))
+
 (def rm-group (osc/builder "/g_freeAll ?id:-12"))
                                         ;0	add the new group to the head of the group specified by the add target ID.
                                         ;1	add the new group to the tail of the group specified by the add target ID.
@@ -43,8 +47,6 @@
 (defonce ^:private clip-bus-map (agent {}))
 
 (defonce audio-bus-counter (atom 14))
-
-(def eval-sc-code (osc/builder "/eval_code ?code"))
 
 
 (defonce ^{:dynamic true} *node-tree-data* nil)
@@ -119,7 +121,7 @@
               "add-action" 1
               "target" group-id
               :args ["audioBus" audio-bus]})))))
-#trace
+
 (defn- setup-mixer [{:keys [name dest] :as clip}]
   (when (= "sc" dest)
     (let [existing-gid (get @clip-groups name)
@@ -129,14 +131,15 @@
         (loop [i 0 g-id (swap! clip-group-num inc)]
           (conn/send! "sc" (new-group {"id" g-id}))
           (if (query-group g-id)
-            (let [bus (swap! audio-bus-counter inc)]
+            (when-let [bus (first @available-audio-buses)]
               (send clip-groups assoc name g-id)
               (ensure-mixer-node g-id bus)
               (send clip-bus-map assoc name bus)
               (update clip :args
                       assoc
                       "target" g-id
-                      "outBus" bus))
+                      "outBus" bus)
+              (swap! available-audio-buses disj bus))
             (if (> i 9)
               (do
                 (prn (str "could not assign group for " name))
@@ -147,21 +150,30 @@
           (update clip :args
                   assoc
                   "target" existing-gid
-                  "outBus" (get clip-bus-map name)))))))
+                  "outBus" (get @clip-bus-map name)))))))
 
 
 (defn- delete-clip-group [{:keys [name dest]}]
   (when (= "sc" dest)
     (when-let [g-id (get @clip-groups name)]
       (conn/send! "sc" (rm-group {"id" g-id}))
-      (send clip-groups dissoc name))))
+      (send clip-groups dissoc name)
+      (swap! available-audio-buses conj (get @clip-bus-map name))
+      (send clip-bus-map dissoc name))))
 
 (defn register-callbacks []
   (sequencer/register-callback sequencer/clip-saved :setup-mixer setup-mixer)
   (sequencer/register-callback sequencer/clip-deleted :rm-sc-group delete-clip-group))
 
+(defn reset-audio-buses []
+  (doseq [b @available-audio-buses]
+    (conn/send! "sc-lang"
+     (eval-sc-code {"code" (str "b = Bus.new('audio', " b ", 2);b.free;")})))
+  (let [cmd "~busses=11.collect{b = Bus.audio(s, 2); b.index;};\"{:busses \" + ~busses.asString + \"}\"; "
+        _ (conn/send! "sc-lang" (eval-sc-code {"code" cmd}))
+        {:keys [data]} (conn/receive-osc-message "/response")]
+    (reset! available-audio-buses (:busses (read-string (first data))))))
 
-                                        ;(prn (query-group 2))
 
 
 
