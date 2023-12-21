@@ -99,21 +99,23 @@
         url (:val url)
         data-sym (gensym)
         msg-sym (gensym)
-        ops (loop [ops [] text text]
-              (let [[data text] (next-token text)
-                    t (:type data)
-                    v (:val data)
-                    [k d] (if (= t t-param)
-                            v [nil nil])
-                    op (condp = t
-                         t-int    `(push-int ~v)
-                         t-float  `(push-float ~v)
-                         t-word   `(push-string ~v)
-                         t-param  `(push-val (get data ~k (or ~d -666)))
-                         t-spread `(push-vals (get data ~v [])))]
-                (if text
-                  (recur (conj ops op) text)
-                  (conj ops op `(get-packet)))))
+        ops (if-not (empty? (.trim (str text)))
+              (loop [ops [] text text]
+                (let [[data text] (next-token text)
+                      t (:type data)
+                      v (:val data)
+                      [k d] (if (= t t-param)
+                              v [nil nil])
+                      op (condp = t
+                           t-int    `(push-int ~v)
+                           t-float  `(push-float ~v)
+                           t-word   `(push-string ~v)
+                           t-param  `(push-val (get data ~k (or ~d -666)))
+                           t-spread `(push-vals (get data ~v [])))]
+                  (if text
+                    (recur (conj ops op) text)
+                    (conj ops op `(get-packet)))))
+              `((get-packet)))
         xargs {'data data-sym 'msg msg-sym}
         ops (mapv #(helper/replace-syms xargs %) ops)]
     `(fn [~data-sym]

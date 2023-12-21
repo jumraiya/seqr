@@ -46,8 +46,9 @@
 
 (defonce ^:private clip-bus-map (agent {}))
 
-(defonce audio-bus-counter (atom 14))
+(defonce ^:private node-counter (atom 100))
 
+(defonce ^:private gated-nodes (atom {}))
 
 (defonce ^{:dynamic true} *node-tree-data* nil)
 
@@ -161,11 +162,11 @@
       (swap! available-audio-buses conj (get @clip-bus-map name))
       (send clip-bus-map dissoc name))))
 
-(defn register-callbacks []
+(defn- register-callbacks []
   (sequencer/register-callback sequencer/clip-saved :setup-mixer setup-mixer)
   (sequencer/register-callback sequencer/clip-deleted :rm-sc-group delete-clip-group))
 
-(defn reset-audio-buses []
+(defn- reset-audio-buses []
   (doseq [b @available-audio-buses]
     (conn/send! "sc-lang"
      (eval-sc-code {"code" (str "b = Bus.new('audio', " b ", 2);b.free;")})))
@@ -174,6 +175,17 @@
         {:keys [data]} (conn/receive-osc-message "/response")]
     (reset! available-audio-buses (:busses (read-string (first data))))))
 
+(defn- listen-notifications []
+  (conn/send! "sc" ((osc/builder "/notify 1") {})))
 
+(defn- release-gated-nodes []
+  (doseq [g (vals @clip-groups)]
+    (when-let [mixer-id (some #(when (= (:name %) "clipMixer") %)
+                              (:children (query-group g)))]
+      (conn/send! "sc" ((osc/builder "/n_set ?n-id ...?args") {"n-id" mixer-id "args" ["startRelease" 1]})))
+    ))
 
-
+(defn setup []
+  (register-callbacks)
+  (reset-audio-buses)
+  (listen-notifications))

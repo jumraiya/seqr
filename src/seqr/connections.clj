@@ -15,17 +15,22 @@
 
 (def MAX-MESSAGES 20)
 
-(defonce ^:private data-socket nil (atom (DatagramSocket. 6814)))
+(defonce ^:private data-socket (atom (DatagramSocket. 6814)))
 
 (defonce ^:private connections (atom {}))
 
 (defonce ^:private serializers (atom {}))
+
+(defonce ^:private osc-msg-listeners (atom {}))
 
 (defonce lock (ReentrantLock. true))
 
 (def receiver-thread nil)
 
 (defonce receiving? (agent false))
+
+(defn register-osc-listener [url f]
+  (swap! osc-msg-listeners update url conj f))
 
 (defn- recv-msg []
   (while @receiving?
@@ -34,6 +39,8 @@
             p (DatagramPacket. buf 4096)
             _ (.receive @data-socket p)
             {:keys [url data] :as msg} (osc/read-msg (.getData p))]
+        (doseq [l (get @osc-msg-listeners url)]
+          (l data))
         (send messages update url
               (fn [m]
                 (conj

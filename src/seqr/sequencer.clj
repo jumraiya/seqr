@@ -31,7 +31,11 @@
 
 (def clip-made-inactive ::clip-made-inactive)
 
-(def events [clip-saved clip-deleted clip-made-active clip-made-inactive])
+(def sequencer-started ::seqr-started)
+
+(def sequencer-paused ::seqr-paused)
+
+(def events #{clip-saved clip-deleted clip-made-active clip-made-inactive sequencer-started sequencer-paused})
 
 (def ^:private default-state
   {:period 93
@@ -284,10 +288,14 @@
           (when (= r :terminated)
             (send sender-threads
                   assoc-in [idx :thread] (doto (sender-thread idx counter)
-                                           (.start)))))))))
+                                           (.start)))))))
+    (doseq [l (vals (get @callbacks sequencer-started))]
+      (l))))
 
 (defn pause []
-  (send state assoc :running? false))
+  (send state assoc :running? false)
+  (doseq [l (vals (get @callbacks sequencer-paused))]
+    (l)))
 
 (defn start|pause []
   (if (:running? @state)
