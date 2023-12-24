@@ -29,6 +29,7 @@
 
 (defonce receiving? (agent false))
 
+<<<<<<< HEAD
 (defn register-osc-listener [url f]
   (swap! osc-msg-listeners update url conj f))
 
@@ -52,19 +53,41 @@
       (catch Exception e
         (prn "Error receiving" (.getMessage e))))))
 
+=======
+>>>>>>> f87e5ff (Add supercollider mixer handling)
 (defn- mk-receiver-thread []
-  (send receiving? (constantly true))
-  (Thread/sleep 100)
-  (let [builder (.name (Thread/ofVirtual) "osc-receiver")]
-    (alter-var-root (var receiver-thread)
-                    (constantly
-                     (.start builder recv-msg)))))
+  (proxy [Thread] ["osc-receiver"]
+    (run []
+      (while @receiving?
+        (try
+          (let [buf (byte-array 4096)
+                p (DatagramPacket. buf 4096)
+                _ (.receive @data-socket p)
+                {:keys [url data] :as msg} (osc/read-msg (.getData p))]
+            (send messages update url
+                  (fn [m]
+                    (conj
+                     (or (if (>= (count m) MAX-MESSAGES)
+                           (vec (rest m))
+                           m)
+                         [])
+                     msg))))
+          (catch Exception e
+            (prn "Error receiving" (.getMessage e))))))))
 
 (defn reset-receiver []
   (send receiving? (constantly false))
   (send messages (constantly nil))
   (Thread/sleep 100)
-  (mk-receiver-thread))
+  (let [;builder (.name (Thread/ofVirtual) "osc-receiver")
+        t (mk-receiver-thread)]
+    (send receiving? (constantly true))
+    (alter-var-root (var receiver-thread)
+                    (constantly
+                     t
+                     ;(.start builder recv-msg)
+                     ))
+    (.start t)))
 
 (defn receive-osc-message [url]
   (let [m (peek (get @messages url))]

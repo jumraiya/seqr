@@ -14,7 +14,13 @@
 (def stop-gated
   (osc/builder "/stop_gated 0"))
 
+(def n-set (osc/builder "/n_set ?node-id ?control ?val"))
+
+(def n-query (osc/builder "/n_query ?node-id"))
+
 (def eval-sc-code (osc/builder "/eval_code ?code"))
+
+(def sc-sync (osc/builder "/sync ?syncId"))
 
 (defonce available-audio-buses (atom #{}))
 
@@ -40,15 +46,15 @@
 ;;      float or symbol	value or control bus mapping symbol (e.g. 'c1')
 
 
-(defonce ^:private clip-groups (agent {}))
-
 (defonce clip-group-num (atom 99))
 
-(defonce ^:private clip-bus-map (agent {}))
+(defonce ^:private clip-mixer-data (agent {}))
 
 (defonce ^:private node-counter (atom 100))
 
 (defonce ^:private gated-nodes (atom {}))
+
+(defonce sync-msg-counter (atom 0))
 
 (defonce ^{:dynamic true} *node-tree-data* nil)
 
@@ -111,7 +117,7 @@
             (do
               (prn "Could not query group")))))))
 
-(defn- ensure-mixer-node [group-id audio-bus]
+(defn- ensure-mixer-node [group-id clip-name audio-bus]
   (let [{:keys [children]} (query-group group-id)]
     (when-not (some #(when (= (:name %) "clipMixer")
                        %)
@@ -121,11 +127,19 @@
              {"synth" "clipMixer"
               "add-action" 1
               "target" group-id
-              :args ["audioBus" audio-bus]})))))
+              :args ["audioBus" audio-bus]})))
+    (let [{:keys [children]} (query-group group-id)]
+      (if-let [node (some #(when (= (:name %) "clipMixer")
+                             %)
+                          children)]
+        (send clip-mixer-data assoc-in
+              [clip-name :mixer]
+              (:id node))
+        (prn "Could not find mixer node")))))
 
 (defn- setup-mixer [{:keys [name dest] :as clip}]
   (when (= "sc" dest)
-    (let [existing-gid (get @clip-groups name)
+    (let [existing-gid (get-in @clip-mixer-data [name :group])
           exists (when existing-gid
                    (query-group existing-gid))]
       (if (nil? exists)
@@ -133,9 +147,9 @@
           (conn/send! "sc" (new-group {"id" g-id}))
           (if (query-group g-id)
             (when-let [bus (first @available-audio-buses)]
-              (send clip-groups assoc name g-id)
-              (ensure-mixer-node g-id bus)
-              (send clip-bus-map assoc name bus)
+              (send clip-mixer-data assoc-in [name :group] g-id)
+              (ensure-mixer-node g-id name bus)
+              (send clip-mixer-data assoc-in [name :bus] bus)
               (update clip :args
                       assoc
                       "target" g-id
@@ -147,20 +161,30 @@
                 clip)
               (recur (inc i) (swap! clip-group-num inc)))))
         (do
-          (ensure-mixer-node existing-gid (get clip-bus-map name))
+          (ensure-mixer-node existing-gid name (get-in @clip-mixer-data [name :bus]))
           (update clip :args
                   assoc
                   "target" existing-gid
-                  "outBus" (get @clip-bus-map name)))))))
+                  "outBus" (get-in @clip-mixer-data [name :bus])))))))
 
 
 (defn- delete-clip-group [{:keys [name dest]}]
   (when (= "sc" dest)
-    (when-let [g-id (get @clip-groups name)]
-      (conn/send! "sc" (rm-group {"id" g-id}))
-      (send clip-groups dissoc name)
-      (swap! available-audio-buses conj (get @clip-bus-map name))
-      (send clip-bus-map dissoc name))))
+    (when-let [data (get @clip-mixer-data name)]
+      (conn/send! "sc" (rm-group {"id" (:group data)}))
+      (send clip-mixer-data dissoc name)
+      (swap! available-audio-buses conj (get-in @clip-mixer-data [name :bus])))))
+
+(defn update-clip-vol [name add]
+  (when-let [group-id (get-in @clip-mixer-data [name :group])]
+    (when-let [{:keys [children]} (query-group group-id true)]
+      (let [{:keys [id controls]}
+            (some #(when (= (:id %) (get-in @clip-mixer-data [name :mixer]))
+                     %)
+                  children)]
+        (conn/send! "sc" (n-set {"node-id" id "control" "volume" "val"
+                                 (+ (get controls "volume") add)}))))))
+
 
 (defn- register-callbacks []
   (sequencer/register-callback sequencer/clip-saved :setup-mixer setup-mixer)
@@ -169,11 +193,12 @@
 (defn- reset-audio-buses []
   (doseq [b @available-audio-buses]
     (conn/send! "sc-lang"
-     (eval-sc-code {"code" (str "b = Bus.new('audio', " b ", 2);b.free;")})))
+                (eval-sc-code {"code" (str "b = Bus.new('audio', " b ", 2);b.free;")})))
   (let [cmd "~busses=11.collect{b = Bus.audio(s, 2); b.index;};\"{:busses \" + ~busses.asString + \"}\"; "
         _ (conn/send! "sc-lang" (eval-sc-code {"code" cmd}))
+        _ (Thread/sleep 100)
         {:keys [data]} (conn/receive-osc-message "/response")]
-    (reset! available-audio-buses (:busses (read-string (first data))))))
+    (reset! available-audio-buses (-> data first read-string :busses set))))
 
 (defn- listen-notifications []
   (conn/send! "sc" ((osc/builder "/notify 1") {})))
@@ -185,7 +210,13 @@
       (conn/send! "sc" ((osc/builder "/n_set ?n-id ...?args") {"n-id" mixer-id "args" ["startRelease" 1]})))
     ))
 
+(defn- register-notify []
+  (conn/send! "sc" ((osc/builder "/notify 1") {})))
+
 (defn setup []
   (register-callbacks)
   (reset-audio-buses)
-  (listen-notifications))
+  ;(listen-notifications)
+  ;(register-notify)
+  )
+

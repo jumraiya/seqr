@@ -16,10 +16,7 @@
 
 (conn/reset-receiver)
 
-(sc/register-callbacks)
-
-;(sc/reset-audio-buses)
-
 (comment
+  (sc/setup)
   (ui/create-ui))
 
