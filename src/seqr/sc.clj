@@ -1,9 +1,14 @@
 (ns seqr.sc
-  (:require [seqr.osc :as osc]
+  (:require [clojure.string :as str]
+            [clojure.walk :refer [postwalk]]
+            [seqr.helper :refer [get-pos]]
+            [seqr.music :as mu]
+            [seqr.osc :as osc]
             [seqr.sequencer :as sequencer]
             [seqr.connections :as conn]
             [seqr.serializers :as se])
-  (:import [javax.sound.midi MidiMessage ShortMessage]))
+  (:import [java.lang ProcessHandle]
+           [javax.sound.midi MidiMessage ShortMessage]))
 
 (def s-new
   (osc/builder "/s_new ?synth ?node-id:-1 ?add-action:0 ?target:0 ...?args"))
@@ -22,7 +27,11 @@
 
 (def sc-sync (osc/builder "/sync ?syncId"))
 
+(def sc-status-req ((osc/builder "/status") {}))
+
 (defonce available-audio-buses (atom #{}))
+
+(defonce gated-nodes (atom {}))
 
 (def rm-group (osc/builder "/g_freeAll ?id:-12"))
                                         ;0	add the new group to the head of the group specified by the add target ID.
@@ -54,10 +63,38 @@
 
 (defonce ^:private gated-nodes (atom {}))
 
-(defonce sync-msg-counter (atom 0))
+(defonce ^:private sync-msg-counter (atom 0))
+
+(defonce ^:private current-sc-synth (atom nil))
 
 (defonce ^{:dynamic true} *node-tree-data* nil)
 
+(defonce ^:private monitoring-sc? (atom false))
+
+(def ^:private sc-synth-monitor-thread nil)
+
+
+(defn- make-sync-request [req & [resp-matcher resp-handler]]
+  "Ensures that the request has been processed before returning"
+  (let [sync-id (swap! sync-msg-counter inc)
+        synced (promise)
+        res (promise)]
+    (when (and resp-matcher resp-handler)
+      (conn/register-one-off-listener
+       (keyword (str "req-" sync-id))
+       resp-matcher
+       (fn [data]
+         (deliver res (resp-handler data)))))
+    (conn/send! "sc" req)
+    (conn/register-one-off-listener
+     (keyword (str "sync-" sync-id))
+     (fn [url data]
+       (and (= url "/synced") (= (first data) sync-id)))
+     (fn [_]
+       (deliver synced true)))
+    (conn/send! "sc" (sc-sync {"syncId" sync-id}))
+    (when (deref synced 500 false)
+      (deref res 1000 nil))))
 
 (defn- parse-synth-tree
   [id ctls?]
@@ -103,27 +140,23 @@
 
 
 (defn query-group [group-id & [ctls?]]
-  (conn/send! "sc" (if ctls?
-                     (query-nodes {"group" group-id "flag" 1})
-                     (query-nodes {"group" group-id})))
-  (loop [i 0]
-    (let [[_flag id n-type :as data] (:data (conn/receive-osc-message "/g_queryTree.reply"))]
-        (if (and (not= n-type -1) (= id group-id))
-          (parse-node-tree data)
-          (if (< i 10)
-            (do
-              (Thread/sleep 100)
-              (recur (inc i)))
-            (do
-              (prn "Could not query group")))))))
+  (make-sync-request
+   (if ctls?
+     (query-nodes {"group" group-id "flag" 1})
+     (query-nodes {"group" group-id}))
+   (fn [url data]
+     (and (= url "/g_queryTree.reply")
+          (let [[_ id n-type] data]
+            (and (not= n-type -1) (= id group-id)))))
+   parse-node-tree))
 
 (defn- ensure-mixer-node [group-id clip-name audio-bus]
   (let [{:keys [children]} (query-group group-id)]
     (when-not (some #(when (= (:name %) "clipMixer")
                        %)
                     children)
-      (conn/send!
-       "sc" (se/sc-new-synth
+      (make-sync-request
+       (se/sc-new-synth
              {"synth" "clipMixer"
               "add-action" 1
               "target" group-id
@@ -137,24 +170,37 @@
               (:id node))
         (prn "Could not find mixer node")))))
 
-(defn- setup-mixer [{:keys [name dest] :as clip}]
+(defn- setup-mixer [{:keys [div name dest args] :as clip}]
   (when (= "sc" dest)
     (let [existing-gid (get-in @clip-mixer-data [name :group])
           exists (when existing-gid
-                   (query-group existing-gid))]
+                   (query-group existing-gid))
+          ;; is-gated? (or (contains? args "gate")
+          ;;               (some?
+          ;;                (let [x (transient [])]
+          ;;                  (postwalk #(if (and (map? %)
+          ;;                                      (contains? % :action)
+          ;;                                      (contains? % "gate"))
+          ;;                               (do (conj! x %) nil)
+          ;;                               %)
+          ;;                            clip)
+          ;;                  (first (persistent! x)))))
+          ]
       (if (nil? exists)
         (loop [i 0 g-id (swap! clip-group-num inc)]
           (conn/send! "sc" (new-group {"id" g-id}))
           (if (query-group g-id)
             (when-let [bus (first @available-audio-buses)]
-              (send clip-mixer-data assoc-in [name :group] g-id)
               (ensure-mixer-node g-id name bus)
-              (send clip-mixer-data assoc-in [name :bus] bus)
+              (send clip-mixer-data update name
+                    assoc :bus bus :group g-id
+                    ;:gated? is-gated?
+                    )
+              (swap! available-audio-buses disj bus)
               (update clip :args
                       assoc
                       "target" g-id
-                      "outBus" bus)
-              (swap! available-audio-buses disj bus))
+                      "outBus" bus))
             (if (> i 9)
               (do
                 (prn (str "could not assign group for " name))
@@ -200,23 +246,63 @@
         {:keys [data]} (conn/receive-osc-message "/response")]
     (reset! available-audio-buses (-> data first read-string :busses set))))
 
-(defn- listen-notifications []
-  (conn/send! "sc" ((osc/builder "/notify 1") {})))
+(defn- listen-for-notifications []
+  (conn/send! "sc" ((osc/builder "/notify 1") {}))
+  #_(conn/register-listener :node-go
+                          (fn [url _]
+                            (= url "/n_go"))
+                          (fn [[id group]]
+                            (when (some )))))
 
 (defn- release-gated-nodes []
-  (doseq [g (vals @clip-groups)]
-    (when-let [mixer-id (some #(when (= (:name %) "clipMixer") %)
-                              (:children (query-group g)))]
-      (conn/send! "sc" ((osc/builder "/n_set ?n-id ...?args") {"n-id" mixer-id "args" ["startRelease" 1]})))
-    ))
+  (doseq [{:keys [mixer]} (vals @clip-mixer-data)]
+    (conn/send! "sc" (n-set {"node-id" mixer "control" "startRelease" "val" 1}))))
 
-(defn- register-notify []
-  (conn/send! "sc" ((osc/builder "/notify 1") {})))
+(defn- mk-sc-synth-monitor []
+  (proxy [Thread] ["sc-synth-receiver"]
+    (run []
+      (while @monitoring-sc?
+        (try
+          (let [proc (some
+                      #(when (str/includes?
+                              (-> % (.info) (.command) (.orElse ""))
+                              "scsynth")
+                         %)
+                      (-> (ProcessHandle/allProcesses)
+                          (.iterator)
+                          iterator-seq))]
+            (when (and proc
+                       (.isAlive proc)
+                       (not= (.pid proc) @current-sc-synth))
+              (Thread/sleep 2000) ;; process might still be booting
+              (reset! current-sc-synth (.pid proc))
+              (sequencer/reprocess-clips))
+            (Thread/sleep 1000))
+          (catch Exception e
+            (prn "Error monitoring sc-synth " (.getMessage e))))))))
+
+(defn- reset-sc-synth-monitor []
+  (reset! monitoring-sc? false)
+  (loop [i 0]
+    (if (< i 2)
+     (if (and sc-synth-monitor-thread
+              (not= Thread$State/TERMINATED
+                    (.getState ^Thread sc-synth-monitor-thread)))
+       (do
+         (Thread/sleep 1000)
+         (recur (inc i))))
+     (prn "could not terminate sc-synth monitor")))
+  (reset! monitoring-sc? true)
+  (let [t (mk-sc-synth-monitor)]
+    (alter-var-root (var sc-synth-monitor-thread)
+                    (constantly t))
+    (.start t)))
+
 
 (defn setup []
   (register-callbacks)
   (reset-audio-buses)
-  ;(listen-notifications)
-  ;(register-notify)
+  (reset-sc-synth-monitor)
+  ;(listen-for-notifications)
   )
 

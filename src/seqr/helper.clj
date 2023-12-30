@@ -54,7 +54,7 @@
 
 (defn lcm [a b]
   "Lowest common multiple"
-      (/ (* a b) (gcd a b)))
+  (/ (* a b) (gcd a b)))
 ;; to calculate the lcm for a variable number of arguments
 (defn lcmv [& v] (reduce lcm v))
 

@@ -21,7 +21,7 @@
 
 (defonce ^:private serializers (atom {}))
 
-(defonce ^:private osc-msg-listeners (atom {}))
+(defonce ^:private osc-msg-listeners (agent {}))
 
 (defonce lock (ReentrantLock. true))
 
@@ -29,32 +29,24 @@
 
 (defonce receiving? (agent false))
 
-<<<<<<< HEAD
-(defn register-osc-listener [url f]
-  (swap! osc-msg-listeners update url conj f))
+(defn register-one-off-listener [key matcher f]
+  (send osc-msg-listeners assoc key [matcher f true]))
 
-(defn- recv-msg []
-  (while @receiving?
-    (try
-      (let [buf (byte-array 4096)
-            p (DatagramPacket. buf 4096)
-            _ (.receive @data-socket p)
-            {:keys [url data] :as msg} (osc/read-msg (.getData p))]
-        (doseq [l (get @osc-msg-listeners url)]
-          (l data))
-        (send messages update url
-              (fn [m]
-                (conj
-                 (or (if (>= (count m) MAX-MESSAGES)
-                       (vec (rest m))
-                       m)
-                     [])
-                 msg))))
-      (catch Exception e
-        (prn "Error receiving" (.getMessage e))))))
+(defn register-listener [key matcher f]
+  (send osc-msg-listeners assoc key [matcher f false]))
 
-=======
->>>>>>> f87e5ff (Add supercollider mixer handling)
+(defn- run-listeners [url data]
+  (loop [listeners @osc-msg-listeners]
+    (let [[k [m f oneoff?]] (first listeners)]
+      (if (and m (m url data))
+        (do
+          (f data)
+          (when oneoff?
+           (send osc-msg-listeners dissoc k))
+          (recur (rest listeners)))
+        (if (not (empty? listeners))
+          (recur (rest listeners)))))))
+
 (defn- mk-receiver-thread []
   (proxy [Thread] ["osc-receiver"]
     (run []
@@ -64,6 +56,7 @@
                 p (DatagramPacket. buf 4096)
                 _ (.receive @data-socket p)
                 {:keys [url data] :as msg} (osc/read-msg (.getData p))]
+            (run-listeners url data)
             (send messages update url
                   (fn [m]
                     (conj
@@ -92,7 +85,7 @@
 (defn receive-osc-message [url]
   (let [m (peek (get @messages url))]
     (when m
-        (send messages update url pop))
+      (send messages update url #(try (pop %) (catch Exception _))))
     m))
 
 (defn get-serializer [dest]

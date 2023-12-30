@@ -1,7 +1,8 @@
 (ns seqr.ui.clip-table
   (:require
    [seqr.ui.utils :as utils]
-   [seqr.sequencer :as sequencer])
+   [seqr.sequencer :as sequencer]
+   [seqr.sc :as s.sc])
   (:import
    (java.awt.event ComponentListener ComponentEvent)
    (javax.swing JComboBox JTextPane JScrollPane JSplitPane JTable JList JTextField DefaultCellEditor JLabel JOptionPane)
@@ -97,4 +98,14 @@
             col (.getSelectedColumn table)]
           (sequencer/set-clip-active (.getValueAt table-model row col) false)
           (.fireTableDataChanged table-model)))
+    (utils/add-key-action
+        table "shift DOWN" "reduce-vol"
+      (let [row (.getSelectedRow table)
+            col (.getSelectedColumn table)]
+        (s.sc/update-clip-vol (.getValueAt table-model row col) -0.2)))
+    (utils/add-key-action
+        table "shift UP" "increase-vol"
+      (let [row (.getSelectedRow table)
+            col (.getSelectedColumn table)]
+          (s.sc/update-clip-vol (.getValueAt table-model row col) 0.2)))
     (JScrollPane. table)))

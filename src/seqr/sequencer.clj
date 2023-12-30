@@ -307,8 +307,9 @@
   (:running? @state))
 
 (defn stop []
-  (send state assoc :terminate? true :running? false)
-  (await state)
+  (when-not (agent-error state)
+    (send state assoc :terminate? true :running? false)
+    (await state))
   (when counter-thread
     (.interrupt counter-thread))
   (doseq [t (mapv :thread (vals @sender-threads))]
@@ -354,3 +355,8 @@
 
 (defn register-callback [event key f]
   (swap! callbacks assoc-in [event key] f))
+
+(defn reprocess-clips []
+  (doseq [{:keys [clips]} (vals @sender-threads)]
+    (doseq [data clips]
+      (save-clip (last data)))))
