@@ -67,31 +67,32 @@
 (register-midi-interpreter "note" midi->note)
 
 (defn scale [{:keys [action] :strs [scale] :as data}]
-  (let [[root type] (re-seq #"[^\s]+" scale)
-        scale (mu/scale (keyword root) (keyword type))
-        [_ degree mods] (if (string? action)
-                          (re-find #"(\d+)([b#<>]*)?" action)
-                          [nil action nil])
-        apply-mods #(reduce (fn [n m]
-                              (condp = m
-                                \b (dec n)
-                                \# (inc n)
-                                \> (+ 12 n)
-                                \< (- n 12)
-                                :else n))
-                            %1 %2)
-        idx (if (string? degree)
+  (when scale
+    (let [[root type] (re-seq #"[^\s]+" scale)
+          scale (mu/scale (keyword root) (keyword type))
+          [_ degree mods] (if (string? action)
+                            (re-find #"(\d+)([b#<>]*)?" action)
+                            [nil action nil])
+          apply-mods #(reduce (fn [n m]
+                                (condp = m
+                                  \b (dec n)
+                                  \# (inc n)
+                                  \> (+ 12 n)
+                                  \< (- n 12)
+                                  :else n))
+                              %1 %2)
+          idx (if (string? degree)
                 (-> degree Integer/parseInt dec)
                 degree)
-        idx (if (< idx (count scale)) idx (rem idx (count scale)))
-        n (apply-mods (nth scale idx) mods)]
-    (assoc data :args
-           (flatten
-            (into []
-                  (-> data
-                      (dissoc "scale")
-                      (dissoc :action)
-                      (dissoc :action-str)
-                      (assoc "note" n "freq" (mu/midi->hz n))))))))
+          idx (if (< idx (count scale)) idx (rem idx (count scale)))
+          n (apply-mods (nth scale idx) mods)]
+      (assoc data :args
+             (flatten
+              (into []
+                    (-> data
+                        (dissoc "scale")
+                        (dissoc :action)
+                        (dissoc :action-str)
+                        (assoc "note" n "freq" (mu/midi->hz n)))))))))
 
 (register-interpreter "scale" scale)

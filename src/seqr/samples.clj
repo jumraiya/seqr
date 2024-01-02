@@ -3,7 +3,8 @@
             [seqr.osc :as osc]
             [clojure.java.io :as io]
             [seqr.connections :as conn]
-            [seqr.interpreters :as interp]))
+            [seqr.interpreters :as interp])
+  (:import (java.nio.file Paths)))
 
 (defonce ^:private buffer-nums (agent #{}))
 
@@ -13,7 +14,7 @@
 
 (def ^:private b-free (osc/builder "/b_free ?num"))
 
-(def drum-kits nil)
+(defonce drum-kits nil)
 
 (defn free-all-buffers []
   (doseq [n (range MAX-BUFFERS)]
@@ -27,39 +28,23 @@
     (send buffer-nums conj buf-num)
     buf-num))
 
-(defn create-sample-map [path & [nest filter]]
-  (let [directory (io/file path)
-        tree (reduce (fn [tree listing]
-                       (if (and (.isFile listing)
-                                (or (.contains (.getName listing) "wav") (.contains (.getName listing) "aif"))
-                                (and (if (fn? filter) (filter listing) true)))
-                         (let [nested-path
-                               (map (fn [part]
-                                      (keyword (string/replace (string/replace part " " "") ":" "")))
-                                    (string/split  (subs (.getAbsolutePath listing) (inc (count path)))  #"\\"))
-                               disk-path (string/replace (.getAbsolutePath listing) "\\" "\\\\")]
+ (defn create-sample-map [path & [nest filter]]
+   (let [directory (io/file path)
+         tree (reduce (fn [tree listing]
+                        (if (and (.isFile listing)
+                                 (or (.contains (.getName listing) "wav") (.contains (.getName listing) "aif"))
+                                 (and (if (fn? filter) (filter listing) true)))
+                          (let [p (.toPath listing)
+                                kit-name (string/replace (.toString (.getName p (- (.getNameCount p) 2))) " " "")
+                                sample-name (string/replace (.toString (.getFileName p)) " " "")
+                                disk-path (string/replace (.getAbsolutePath listing) "\\" "\\\\")]
+                            (assoc-in tree [kit-name sample-name] (sample disk-path)))
+                          tree))
 
-                           (if (= nest true)
-                             (update-in tree nested-path (fn [_] (sample disk-path)))
-                             (assoc tree
-                                    (-> (.getName listing)
-                                        (string/replace " " "")
-                                        (string/replace ":" "")
-                                        (string/replace #"\..*" "")
-                                        keyword)
-                                    (sample disk-path))
-                             )
-                           )
-                         tree
-                         )
-                       )
-                     {}
-                     (file-seq directory)
-                     )
-        ]
-    tree
-    )
-  )
+                      {}
+                      (file-seq directory))]
+
+     tree))
 
 (defn group-samples [samples]
   (let [sample-names (sort (map name (keys samples)))]
@@ -78,19 +63,20 @@
                   (constantly
                    (create-sample-map
                     (str (System/getProperty "user.home")
-                         "\\samples\\Drum Kits") true))))
+                         "/samples/Drum Kits") true))))
 
-(defn drum [{:strs [kit] :keys [action] :as data}]
-  (let [kit (first (filter #(re-matches (re-pattern (str "(?i)" kit)) (name %))
-                           (keys drum-kits)))
-        [_ t n] (re-find #"([a-z]+)([0-9]+)" action)
-        buf-num (some (fn [[s b]]
-                        (when (re-matches (re-pattern (str "(?i).*" t ".*" n ".*"))
-                                          (name s))
-                          b))
-                      (get drum-kits kit))]
-    (if buf-num
-      (assoc data :args (reduce into ["num" buf-num] (dissoc data :action :action-str "kit")))
-      data)))
+ (defn drum [{:strs [kit] :keys [action] :as data}]
+   (let [pat (re-pattern (str "(?i).*" (string/join ".*" (string/split kit #"[^a-zA-Z0-9]+")) ".*"))
+         kit (first (filter #(re-matches pat %)
+                            (keys drum-kits)))
+         [_ t n] (re-find #"([a-z]+)([0-9]+)" action)
+         buf-num (some (fn [[s b]]
+                         (when (re-matches (re-pattern (str "(?i).*" t ".*" n ".*"))
+                                           (name s))
+                           b))
+                       (get drum-kits kit))]
+     (if buf-num
+       (assoc data :args (reduce into ["num" buf-num] (dissoc data :action :action-str "kit")))
+       data)))
 
 (interp/register-interpreter "drum" drum)

@@ -38,6 +38,8 @@
 
 (declare add-action)
 
+(declare add-action-var)
+
 (declare add-rest)
 
 (declare add-params)
@@ -177,24 +179,15 @@
       t-brace-close [data text dynamic?])))
 
 (defn- add-map-val [data text key & [dynamic?]]
-  (let [[token text] (next-token text)
-        add-action-val #(let [[cl text token]
-                              (parse-clip
-                               (str (:val token) text) (assoc data :point 1 :parse-until 2))
-                              v (mk-action-str (get-in cl [1 1]) data)]
-                             (add-map-key
-                              (assoc data key v)
-                              (str (:val token) " " text) dynamic?))]
-    (if (is-action-var? key)
-      (add-action-val)
-      (condp = (:type token)
-        t-single-quote (let [[v text] (read-quoted-value text)]
-                         (add-map-key (assoc data key v) text dynamic?))
-        t-word (add-map-key (assoc data key (:val token)) text dynamic?)
-        t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
-                       (add-map-key (assoc data key a-str) after true))
-        t-brace-open (let [[sub text] (add-map-key {} text)]
-                       (add-map-key (assoc data key sub) text dynamic?))))))
+  (let [[token text] (next-token text)]
+    (condp = (:type token)
+      t-single-quote (let [[v text] (read-quoted-value text)]
+                       (add-map-key (assoc data key v) text dynamic?))
+      t-word (add-map-key (assoc data key (:val token)) text dynamic?)
+      t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
+                     (add-map-key (assoc data key a-str) after true))
+      t-brace-open (let [[sub text] (add-map-key {} text)]
+                     (add-map-key (assoc data key sub) text dynamic?)))))
 
 (defn- add-params [token text {:keys [eval point div] :as clip} in-group? after-group?]
   (let [[params text dynamic?] (add-map-key {} text)
@@ -216,6 +209,7 @@
                clip)]
     (condp = (:type token)
       t-word (add-action token text clip in-group?)
+      t-action-var (add-action-var token text clip)
       t-paren-open (add-action token text clip in-group?)
       t-bracket-open (if in-group?
                        (throw (Exception. "Cannot nest group actions"))
@@ -233,53 +227,45 @@
         ~body))))
 
  (defn- add-action [token text {:keys [point div args parse-until] :or {args {}} :as clip} group?]
-   (let [pos (get-pos point div)
-         after-group? (= t-bracket-close (:type token))
-         insert-action-var #(let [[cl _text _token]
-                                  (parse-clip (get clip (:val token))
-                                              (assoc clip :point 1 :parse-until 2))
-                                  actions (get-in cl [1 1])
-                                  is-dynamic? (contains? (:dynamic cl) 1)]
-                              (cond-> %
-                                (not (empty? actions))
-                                (assoc-in pos actions)
-                                is-dynamic?
-                                (update :dynamic conj point)))
-         [is-action? action text action-str dynamic?]
-         (condp = (:type token)
-           t-word [true (:val token) text (:val token) false]
-           t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
-                          [true (eval-clj (str "(fn [bar note]" a-str ")")) after a-str true])
-           [false nil text nil false])
-         clip (cond-> clip
-                is-action?
-                (update-in pos
-                           #(conj (vec %)
-                                  (merge args {:action action
-                                               :action-str (str action-str)})))
-                dynamic? (update :dynamic conj point)
-                (= t-action-var (:type token))
-                insert-action-var)
-         [token text] (next-token text)
-         clip (update clip :point (if (or group?
-                                          (= t-brace-open (:type token)))
-                                    identity
-                                    inc))]
-     (if (and parse-until (>= (:point clip) parse-until))
-       [clip text token]
-       (condp = (:type token)
-         t-word (add-action token text clip group?)
-         t-action-var (let [ac (get clip (:val token))
-                            [tok] (next-token ac)]
-                        (add-action tok text clip group?))
-         t-paren-open (add-action token text clip group?)
-         t-rest (add-rest token text clip)
-         t-bracket-open (if group?
-                          (throw (Exception. "Cannot nest group actions"))
-                          (add-action token text clip true))
-         t-bracket-close (add-action token text clip after-group?)
-         t-brace-open (add-params token text clip group? after-group?)
-         t-eof clip))))
+  (let [pos (get-pos point div)
+        after-group? (= t-bracket-close (:type token))
+        [is-action? action text action-str dynamic?]
+        (condp = (:type token)
+          t-word [true (:val token) text (:val token) false]
+          t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
+                         [true (eval-clj (str "(fn [bar note]" a-str ")")) after a-str true])
+          [false nil text nil false])
+        clip (cond-> clip
+               is-action?
+               (update-in pos
+                          #(conj (vec %)
+                                 (merge args {:action action
+                                              :action-str (str action-str)})))
+               dynamic? (update :dynamic conj point))
+        [token text] (next-token text)
+        clip (update clip :point (if (or group?
+                                         (= t-brace-open (:type token)))
+                                   identity
+                                   inc))]
+    (if (and parse-until (>= (:point clip) parse-until))
+      [clip text token]
+      (condp = (:type token)
+        t-word (add-action token text clip group?)
+        t-action-var (add-action-var token text clip)
+        t-paren-open (add-action token text clip group?)
+        t-rest (add-rest token text clip)
+        t-bracket-open (if group?
+                         (throw (Exception. "Cannot nest group actions"))
+                         (add-action token text clip true))
+        t-bracket-close (add-action token text clip after-group?)
+        t-brace-open (add-params token text clip group? after-group?)
+        t-eof clip))))
+
+(defn- add-action-var [token text clip]
+  (let [ac (get clip (:val token))
+        [token text] (next-token (str ac " " text))
+        group? (= (:type token) t-bracket-open)]
+    (add-action token text clip group?)))
 
 (defn as-str [{:keys [div args point] :as clip} & {:keys [exclude-preamble? no-args-diff]}]
   (let [text (StringBuilder.)
@@ -393,7 +379,7 @@
                t-brace-close (parse-clip text clip)
                t-bracket-open (add-action token text clip true)
                t-paren-open (add-action token text clip false)
-               t-action-var (add-action token text clip false)
+               t-action-var (add-action-var token text clip)
                t-word (add-action token text clip false)
                t-rest (add-rest token text clip)
                t-eof clip)
