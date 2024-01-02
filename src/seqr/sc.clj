@@ -171,7 +171,7 @@
         (prn "Could not find mixer node")))))
 
 (defn- setup-mixer [{:keys [div name dest args] :as clip}]
-  (when (= "sc" dest)
+  (if (contains? #{"sc" "sc-lang"} dest)
     (let [existing-gid (get-in @clip-mixer-data [name :group])
           exists (when existing-gid
                    (query-group existing-gid))
@@ -211,7 +211,8 @@
           (update clip :args
                   assoc
                   "target" existing-gid
-                  "outBus" (get-in @clip-mixer-data [name :bus])))))))
+                  "outBus" (get-in @clip-mixer-data [name :bus])))))
+    clip))
 
 
 (defn- delete-clip-group [{:keys [name dest]}]

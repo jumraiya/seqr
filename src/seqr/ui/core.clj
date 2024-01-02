@@ -16,6 +16,9 @@
 (defonce ^:private state
   (agent {:clips [] :selected-clip nil}))
 
+(defn reset-state []
+  (send state (constantly {:clips [] :selected-clip nil})))
+
 (defn- add-key-bindings [clip-pane components clip-table clip-config]
   (doseq [c components]
     (utils/add-key-action c "control RIGHT" "focus-clip-table"

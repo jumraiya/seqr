@@ -1,5 +1,7 @@
 (ns seqr.ui.clip-config
-  (:require [clojure.string :as str]
+  (:require [seqr.clip :as clip]
+            [clojure.walk :refer [postwalk]]
+            [clojure.string :as str]
             [seqr.ui.utils :as utils])
   (:import
    (java.awt.event ComponentListener ComponentEvent)
@@ -36,22 +38,30 @@
     (.setViewSize (.getViewport scroll-pane) view-size)))
 
 
+(defn- get-config-path+val  [prop val]
+  [(cond
+     (contains? (set default-properties) (keyword prop))
+     [(keyword prop)]
+     (.startsWith (name prop) "$")
+     [(name prop)]
+     :else
+     [:args (name prop)])
+   (cond
+     (re-matches #"\d+" val) (Integer/parseInt val)
+     (re-matches #"[\d\.]+" val) (Float/parseFloat val)
+     (re-matches #"\s*\(.*" val) val ;(clip/eval-clj (str "(fn [bar note]" val ")"))
+     :else val)])
+
 (defn get-config-map [config-table]
   (let [model (.getModel config-table)]
     (reduce
      (fn [config [r c]]
        (if-let [v (and (-> (.getValueAt model r c) (or "") (.trim) empty? not)
-                         (.getValueAt model r c))]
+                       (.getValueAt model r c))]
          (if-let [prop (and (-> (.getValueAt model r (dec c)) (or "") (.trim) empty? not)
-                              (.getValueAt model r (dec c)))]
-           (assoc-in config
-                     (if (contains? (set default-properties) (keyword prop))
-                       [(keyword prop)]
-                       [:args (name prop)])
-                     (cond
-                       (re-matches #"\d+" v) (Integer/parseInt v)
-                       (re-matches #"[\d\.]+" v) (Float/parseFloat v)
-                       :else v))
+                            (.getValueAt model r (dec c)))]
+           (let [[p v] (get-config-path+val prop v)]
+               (assoc-in config p v))
            config)
          config))
      {}
@@ -59,41 +69,49 @@
            c (filter odd? (range (.getColumnCount model)))]
        [r c]))))
 
+(defn- set-config-val [clip-atom table ui-state save-fn val row col]
+  (let [args (flatten
+              (concat (mapv #(vector % (get-in @clip-atom [:data %])) default-properties)
+                      (vec (filter (fn [[k _]] (and (string? k) (.startsWith ^String k "$"))) (:data @clip-atom)))
+                      (->> @clip-atom :data :args (sort-by key))))
+        prop (nth args (+ (* row 8) (dec col)) nil)
+        cur-clip (:data @clip-atom)
+        old-val (get-in cur-clip [:args (name prop)])
+        [p v] (get-config-path+val prop val)
+        new-clip (assoc-in cur-clip p v)
+        new-clip (if old-val
+                   (postwalk #(if (and (map? %)
+                                       (contains? % :action)
+                                       (= old-val (get % (name prop))))
+                                (dissoc % (name prop))
+                                %)
+                             new-clip)
+                   new-clip)]
+    (when prop
+      (save-fn ui-state new-clip))))
+
 (defn- config-model [clip-atom table ui-state save-fn]
   (proxy [AbstractTableModel] []
     (getColumnCount []
       8)
     (getRowCount []
-      (let [args (-> @clip-atom :data :args keys sort)]
+      (let [args (concat
+                  (filter #(and (string? %) (.startsWith ^String % "$")) (-> @clip-atom :data keys))
+                  (-> @clip-atom :data :args keys sort))]
         (inc (int (Math/ceil (/ (* 2 (count args)) 8))))))
     (getValueAt [row col]
       (let [args (flatten
-                  (into (mapv #(vector % (get-in @clip-atom [:data %])) default-properties)
-                        (->> @clip-atom :data :args (sort-by key))))
+                  (concat (mapv #(vector % (get-in @clip-atom [:data %])) default-properties)
+                          (vec (filter (fn [[k _]] (and (string? k) (.startsWith ^String k "$"))) (:data @clip-atom)))
+                          (->> @clip-atom :data :args (sort-by key))))
             val (nth args (+ (* row 8) col) nil)]
         (if (keyword? val)
           (name val)
           (str val))))
     (setValueAt [val row col]
-      (let [args (flatten
-                  (into (mapv #(vector % (get-in @clip-atom [:data %])) default-properties)
-                        (->> @clip-atom :data :args (sort-by key))))
-            prop (nth args (+ (* row 8) (dec col)) nil)
-            cur-clip (:data @clip-atom)]
-        (when prop
-          (save-fn
-           ui-state
-           (assoc-in cur-clip
-                     (if (contains? (set default-properties) (keyword prop))
-                       [(keyword prop)]
-                       [:args (name prop)])
-                     (cond
-                       (re-matches #"\d+" val) (Integer/parseInt val)
-                       (re-matches #"[\d\.]+" val) (Float/parseFloat val)
-                       :else val))))))
+      (set-config-val clip-atom table ui-state save-fn val row col))
     (isCellEditable [row col]
       (odd? col))))
-
 
 
 #_(defn- watch [clip container table]
@@ -161,7 +179,10 @@
                         (.getValueAt model r (dec c))
                         (.getValueAt model r c))]
              (when (and prop r (> r 0))
-               (send clip-atom update-in [:data :args] dissoc prop)
+               (cond
+                 (and (string? prop) (.startsWith ^String prop "$"))
+                 (send clip-atom update :data dissoc prop)
+                 :else (send clip-atom update-in [:data :args] dissoc prop))
                (.fireTableStructureChanged model))))
         _ (utils/add-key-action
               table "control E" "edit-prop"
@@ -171,7 +192,7 @@
               (if (odd? c)
                 (when-let [prop (.getValueAt model r (dec c))]
                   (utils/show-text-input-dialog
-                   (.getSource e) "Edit" val #(.setValueAt model % r c)))
+                   (.getTopLevelAncestor (.getSource e)) "Edit" val #(.setValueAt model % r c)))
                 (when (> r 0)
                   (utils/show-text-input-dialog
                    (.getTopLevelAncestor (.getSource e)) "Edit" val
@@ -185,7 +206,11 @@
             (utils/show-text-input-dialog
              (.getTopLevelAncestor (.getSource e)) "Add arg" ""
              (fn [new-prop]
-               (send clip-atom assoc-in [:data :args new-prop] "")
+               (cond
+                 (and (string? new-prop) (.startsWith ^String new-prop "$"))
+                 (send clip-atom assoc-in [:data new-prop] "")
+                 :else
+                 (send clip-atom assoc-in [:data :args new-prop] ""))
                (.fireTableStructureChanged model))))
         scroll-pane (JScrollPane. table)
         _ (.addTableModelListener

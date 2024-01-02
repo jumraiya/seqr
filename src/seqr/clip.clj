@@ -30,6 +30,8 @@
 
 (def t-options-boundary ::options-boundary)
 
+(def t-action-var ::action-var)
+
 (def t-unknown ::unknown)
 
 (def t-eof ::eof)
@@ -46,14 +48,16 @@
 
 (declare add-map-val)
 
-(defn- eval-clj [str]
-  (eval (read-string str)))
+(declare parse-clip)
+
+(defn eval-clj [in]
+  (eval (read-string (str "(do (require '[seqr.music :refer :all]) " in ")"))))
 
 (defn- next-token [text]
   (if text
     (let [text (.trim text)
-          [match options rest bar bracket-open bracket-close brace-open brace-close paren-open paren-close single-quote word]
-          (re-find #"(%)|(:[0-9]+)|(\|)|(\[)|(\])|(\{)|(\})|(\()|(\))|(\')|([^\s\[\]\{\}\(\)']+)" text)]
+          [match options rest bar bracket-open bracket-close brace-open brace-close paren-open paren-close single-quote action-var word]
+          (re-find #"(%)|(:[0-9]+)|(\|)|(\[)|(\])|(\{)|(\})|(\()|(\))|(\')|(\$[a-z]+)|([^\s\[\]\{\}\(\)']+)" text)]
       [(cond
          (-> options nil? not) {:type t-options-boundary :val "%"}
          (-> rest nil? not) {:type t-rest :val (Integer/parseInt (.substring rest 1))}
@@ -65,6 +69,7 @@
          (-> paren-open nil? not) {:type t-paren-open :val "("}
          (-> paren-close nil? not) {:type t-paren-close :val ")"}
          (-> single-quote nil? not) {:type t-single-quote :val "'"}
+         (-> action-var nil? not) {:type t-action-var :val action-var}
          (-> word nil? not) {:type t-word
                              :val (cond
                                     (re-matches #"-?[0-9]+\.[0-9]+" word)
@@ -79,6 +84,41 @@
        (if (and text match (> (.length text) (.length match)))
          (.substring text (.length match)))])
     [{:type t-eof}]))
+
+(defn is-action-var? [v]
+  (and (string? v) (.startsWith ^String v "$")))
+
+(defn- mk-action-str [actions {:keys [args]}]
+  (let [multi-action? (> (count actions) 1)
+        [common-params]
+        (if multi-action?
+          (diff
+           (reduce #(nth (diff (dissoc %1 :action :action-str)
+                               (dissoc %2 :action :action-str))
+                         2) actions)
+           args))
+        action-str (->> actions
+                        (map
+                         #(let [a-params (-> (dissoc % :action :action-str)
+                                             (diff common-params)
+                                             first
+                                             (diff args)
+                                             first)]
+                            (str (or (:action-str %) (:action %))
+                                 (if (not (empty? a-params))
+                                   (str " " (-> a-params str
+                                                (clojure.string/replace "\"" "")
+                                                (clojure.string/replace "," ""))
+                                        " "))
+                                 " ")))
+                        join)]
+    (.trim
+     (if multi-action?
+       (str "[" (.trim action-str) "]"
+            (if (not (empty? common-params))
+              (str " " (-> common-params str (clojure.string/replace "\"" "")
+                           (clojure.string/replace "," "")))))
+       action-str))))
 
 (defn- get-after-sexp [text]
   "Get the text after a sexp, this allows the parsing to continue after we encounter a clj expression"
@@ -119,6 +159,7 @@
     (condp = (:type token)
       t-rest (add-rest token text clip)
       t-paren-open (add-action token text clip false)
+      t-action-var (add-action token text clip false)
       t-word (add-action token text clip false)
       t-bracket-open (add-action token text clip true)
       t-eof clip
@@ -132,19 +173,28 @@
             k)]
     (condp = (:type token)
       t-word (add-map-val data text k dynamic?)
+      t-action-var (add-map-val data text k dynamic?)
       t-brace-close [data text dynamic?])))
 
 (defn- add-map-val [data text key & [dynamic?]]
-  (let [[token text] (next-token text)]
-    (condp = (:type token)
-      t-single-quote (let [[v text] (read-quoted-value text)]
-                       (add-map-key (assoc data key v) text dynamic?))
-      t-word (add-map-key (assoc data key (:val token)) text dynamic?)
-      t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))
-                         f (eval-clj (str "(fn [bar note]" a-str ")"))]
-                     (add-map-key (assoc data key f) after true))
-      t-brace-open (let [[sub text] (add-map-key {} text)]
-                       (add-map-key (assoc data key sub) text dynamic?)))))
+  (let [[token text] (next-token text)
+        add-action-val #(let [[cl text token]
+                              (parse-clip
+                               (str (:val token) text) (assoc data :point 1 :parse-until 2))
+                              v (mk-action-str (get-in cl [1 1]) data)]
+                             (add-map-key
+                              (assoc data key v)
+                              (str (:val token) " " text) dynamic?))]
+    (if (is-action-var? key)
+      (add-action-val)
+      (condp = (:type token)
+        t-single-quote (let [[v text] (read-quoted-value text)]
+                         (add-map-key (assoc data key v) text dynamic?))
+        t-word (add-map-key (assoc data key (:val token)) text dynamic?)
+        t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
+                       (add-map-key (assoc data key a-str) after true))
+        t-brace-open (let [[sub text] (add-map-key {} text)]
+                       (add-map-key (assoc data key sub) text dynamic?))))))
 
 (defn- add-params [token text {:keys [eval point div] :as clip} in-group? after-group?]
   (let [[params text dynamic?] (add-map-key {} text)
@@ -182,56 +232,80 @@
        (replace-syms
         ~body))))
 
- (defn- add-action [token text {:keys [eval point div args] :or {args {}} :as clip} group?]
+ (defn- add-action [token text {:keys [point div args parse-until] :or {args {}} :as clip} group?]
    (let [pos (get-pos point div)
          after-group? (= t-bracket-close (:type token))
-         [is-action? action text action-str]
+         insert-action-var #(let [[cl _text _token]
+                                  (parse-clip (get clip (:val token))
+                                              (assoc clip :point 1 :parse-until 2))
+                                  actions (get-in cl [1 1])
+                                  is-dynamic? (contains? (:dynamic cl) 1)]
+                              (cond-> %
+                                (not (empty? actions))
+                                (assoc-in pos actions)
+                                is-dynamic?
+                                (update :dynamic conj point)))
+         [is-action? action text action-str dynamic?]
          (condp = (:type token)
-           t-word [true (:val token) text (:val token)]
+           t-word [true (:val token) text (:val token) false]
            t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
-                          [true (eval-clj (str "(fn [bar note]" a-str ")")) after a-str])
-           [false nil text nil])
+                          [true (eval-clj (str "(fn [bar note]" a-str ")")) after a-str true])
+           [false nil text nil false])
          clip (cond-> clip
-                is-action? (update-in pos #(conj (vec %) (merge args {:action action :action-str action-str})))
-                (= (:type token) t-paren-open) (update :dynamic conj point))
+                is-action?
+                (update-in pos
+                           #(conj (vec %)
+                                  (merge args {:action action
+                                               :action-str (str action-str)})))
+                dynamic? (update :dynamic conj point)
+                (= t-action-var (:type token))
+                insert-action-var)
          [token text] (next-token text)
          clip (update clip :point (if (or group?
                                           (= t-brace-open (:type token)))
                                     identity
                                     inc))]
-     (condp = (:type token)
-       t-word (add-action token text clip group?)
-       t-paren-open (add-action token text clip group?)
-       t-rest (add-rest token text clip)
-       t-bracket-open (if group?
-                        (throw (Exception. "Cannot nest group actions"))
-                        (add-action token text clip true))
-       t-bracket-close (add-action token text clip after-group?)
-       t-brace-open (add-params token text clip group? after-group?)
-       t-eof clip)))
+     (if (and parse-until (>= (:point clip) parse-until))
+       [clip text token]
+       (condp = (:type token)
+         t-word (add-action token text clip group?)
+         t-action-var (let [ac (get clip (:val token))
+                            [tok] (next-token ac)]
+                        (add-action tok text clip group?))
+         t-paren-open (add-action token text clip group?)
+         t-rest (add-rest token text clip)
+         t-bracket-open (if group?
+                          (throw (Exception. "Cannot nest group actions"))
+                          (add-action token text clip true))
+         t-bracket-close (add-action token text clip after-group?)
+         t-brace-open (add-params token text clip group? after-group?)
+         t-eof clip))))
 
-(defn as-str [{:keys [div args point] :as clip} & {:keys [exclude-preamble?]}]
+(defn as-str [{:keys [div args point] :as clip} & {:keys [exclude-preamble? no-args-diff]}]
   (let [text (StringBuilder.)
-        mk-action-str (fn [actions]
-                        (let [multi-action? (> (count actions) 1)
-                              [common-params] (if multi-action?
-                                                (diff
-                                                 (reduce #(nth (diff (dissoc %1 :action :action-str) (dissoc %2 :action :action-str)) 2) actions)
-                                                 args))
-                              action-str (->> actions
-                                              (map
-                                               #(let [a-params (-> (dissoc % :action :action-str) (diff common-params) first (diff args) first)]
-                                                  (str (or (:action-str %) (:action %))
-                                                       (if a-params (str " " (-> a-params str
-                                                                                 (clojure.string/replace "\"" "")
-                                                                                 (clojure.string/replace "," ""))
-                                                                         " "))
-                                                       " ")))
-                                              join)]
-                          (.trim
-                           (if multi-action?
-                             (str "[" (.trim action-str) "]" (if common-params (str " " (-> common-params str (clojure.string/replace "\"" "") (clojure.string/replace "," "")))))
-                             action-str))))
+        ;; mk-action-str (fn [actions]
+        ;;                 (let [multi-action? (> (count actions) 1)
+        ;;                       [common-params] (if multi-action?
+        ;;                                         (diff
+        ;;                                          (reduce #(nth (diff (dissoc %1 :action :action-str) (dissoc %2 :action :action-str)) 2) actions)
+        ;;                                          args))
+        ;;                       action-str (->> actions
+        ;;                                       (map
+        ;;                                        #(let [a-params (-> (dissoc % :action :action-str) (diff common-params) first (diff args) first)]
+        ;;                                           (str (or (:action-str %) (:action %))
+        ;;                                                (if a-params (str " " (-> a-params str
+        ;;                                                                          (clojure.string/replace "\"" "")
+        ;;                                                                          (clojure.string/replace "," ""))
+        ;;                                                                  " "))
+        ;;                                                " ")))
+        ;;                                       join)]
+        ;;                   (.trim
+        ;;                    (if multi-action?
+        ;;                      (str "[" (.trim action-str) "]"
+        ;;                           (if common-params
+        ;;                             (str " " (-> common-params str (clojure.string/replace "\"" "")
+        ;;                                          (clojure.string/replace "," "")))))
+        ;;                      action-str))))
         [action-strs col-lens] (loop [actions {} lens {} p 1 last-action 0]
                                  (let [[bar note] (get-pos p div)
                                        has-action? (-> (get-in clip [bar note]) empty? not)
@@ -241,7 +315,7 @@
                                                          (not (= 1 note)))
                                                   (str ":" rest-val " ")
                                                   "")
-                                       s (mk-action-str (get-in clip [bar note] []))
+                                       s (mk-action-str (get-in clip [bar note] []) clip)
                                        [actions lens] (if has-action?
                                                         [(assoc actions p s)
                                                          (update lens note #(max (or % 0) (.length s)))]
@@ -319,6 +393,7 @@
                t-brace-close (parse-clip text clip)
                t-bracket-open (add-action token text clip true)
                t-paren-open (add-action token text clip false)
+               t-action-var (add-action token text clip false)
                t-word (add-action token text clip false)
                t-rest (add-rest token text clip)
                t-eof clip)

@@ -11,8 +11,10 @@
 (defn load-sketch [path editor state]
   (try
     (let [{:keys [bpm clips]} (read-string (slurp path))]
+      (editor/reset-state)
+      (sequencer/reset-state)
       (doseq [c (mapv clip/parse-clip clips)]
-          (editor/save-clip state c))
+        (editor/save-clip state c))
       (sequencer/set-bpm (or bpm 80)))
     (catch Exception e
       (prn "Error loading sketch" e))))
