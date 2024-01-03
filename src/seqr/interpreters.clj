@@ -12,7 +12,7 @@
 (defn interpret [{:keys [args interpreter] :as cl} {:keys [action] :as ac} & [b n]]
   (let [f (or (get @interpreters interpreter) identity)]
     (f
-     (-> ac
+     (-> (merge args ac)
          (dissoc :action-str)
          (update-vals #(if (and (string? %)
                                 (.startsWith ^String % "$"))

@@ -257,7 +257,6 @@
               (if (< @counter (:size @state))
                 (vswap! counter inc)
                 (vreset! counter 1))
-              ;(prn @counter)
               (Thread/sleep (:period @state)))
             (do
               (println "Stopping sequencer")
@@ -331,9 +330,16 @@
 (defn reset-state []
   (doseq [i (range MAX-CLIPS)]
     (clear-slot i))
-  (send state (constantly default-state))
+  (if (agent-error state)
+    (restart-agent state default-state)
+    (send state (constantly default-state)))
   (send sender-idx (constantly 0))
-  (send sender-threads update-vals #(assoc % :clips [])))
+  (doseq [{:keys [clips]} (vals @sender-threads)]
+    (doseq [cl clips]
+      (doseq [f (vals (get @callbacks clip-deleted))]
+          (f cl))))
+  (send sender-threads update-vals #(assoc % :clips []))
+  (await-for 2000 state sender-threads))
 
 (defn clear-data []
   (doseq [i (range MAX-CLIPS)]

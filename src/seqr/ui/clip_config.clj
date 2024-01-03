@@ -49,7 +49,7 @@
    (cond
      (re-matches #"\d+" val) (Integer/parseInt val)
      (re-matches #"[\d\.]+" val) (Float/parseFloat val)
-     (re-matches #"\s*\(.*" val) val ;(clip/eval-clj (str "(fn [bar note]" val ")"))
+     (re-matches #" " (name prop)) (str "'" val "'")
      :else val)])
 
 (defn get-config-map [config-table]
