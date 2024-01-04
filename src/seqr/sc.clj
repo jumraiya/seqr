@@ -210,12 +210,12 @@
 
 
 (defn- delete-clip-group [{:keys [name dest]}]
-  (when (= "sc" dest)
-    (when-let [data (get @clip-mixer-data name)]
-      (conn/send! "sc" (group-free-all {"group-id" (:group data)}))
-      (conn/send! "sc" (n-free {"node-id" (:group data)}))
-      (send clip-mixer-data dissoc name)
-      (swap! available-audio-buses conj (get-in @clip-mixer-data [name :bus])))))
+  (when (contains? #{"sc" "sc-lang"} dest)
+    (when-let [{:keys [mixer bus]} (get @clip-mixer-data name)]
+      ;(conn/send! "sc" (group-free-all {"group-id" (:group data)}))
+      (conn/send! "sc" (n-set {"node-id" mixer "control" "startRelease" "val" 1}))
+      (swap! available-audio-buses conj bus)
+      (send clip-mixer-data dissoc name))))
 
 (defn update-clip-vol [name add]
   (when-let [group-id (get-in @clip-mixer-data [name :group])]
@@ -312,6 +312,7 @@
 
 
 (defn setup []
+  (samples/reset-drum-kits)
   (register-callbacks)
   (reset-audio-buses)
   (reset-sc-synth-monitor)

@@ -91,36 +91,38 @@
   (and (string? v) (.startsWith ^String v "$")))
 
 (defn- mk-action-str [actions {:keys [args]}]
-  (let [multi-action? (> (count actions) 1)
-        [common-params]
-        (if multi-action?
-          (diff
-           (reduce #(nth (diff (dissoc %1 :action :action-str)
-                               (dissoc %2 :action :action-str))
-                         2) actions)
-           args))
-        action-str (->> actions
-                        (map
-                         #(let [a-params (-> (dissoc % :action :action-str)
-                                             (diff common-params)
-                                             first
-                                             (diff args)
-                                             first)]
-                            (str (or (:action-str %) (:action %))
-                                 (if (not (empty? a-params))
-                                   (str " " (-> a-params str
-                                                (clojure.string/replace "\"" "")
-                                                (clojure.string/replace "," ""))
-                                        " "))
-                                 " ")))
-                        join)]
-    (.trim
-     (if multi-action?
-       (str "[" (.trim action-str) "]"
-            (if (not (empty? common-params))
-              (str " " (-> common-params str (clojure.string/replace "\"" "")
-                           (clojure.string/replace "," "")))))
-       action-str))))
+  (if-let [action-var-str (-> actions first :action-var-str)]
+    action-var-str
+    (let [multi-action? (> (count actions) 1)
+          [common-params]
+          (if multi-action?
+            (diff
+             (reduce #(nth (diff (dissoc %1 :action :action-str)
+                                 (dissoc %2 :action :action-str))
+                           2) actions)
+             args))
+          action-str (->> actions
+                          (map
+                           #(let [a-params (-> (dissoc % :action :action-str)
+                                               (diff common-params)
+                                               first
+                                               (diff args)
+                                               first)]
+                              (str (or (:action-str %) (:action %))
+                                   (if (not (empty? a-params))
+                                     (str " " (-> a-params str
+                                                  (clojure.string/replace "\"" "")
+                                                  (clojure.string/replace "," ""))
+                                          " "))
+                                   " ")))
+                          join)]
+      (.trim
+       (if multi-action?
+         (str "[" (.trim action-str) "]"
+              (if (not (empty? common-params))
+                (str " " (-> common-params str (clojure.string/replace "\"" "")
+                             (clojure.string/replace "," "")))))
+         action-str)))))
 
 (defn- get-after-sexp [text]
   "Get the text after a sexp, this allows the parsing to continue after we encounter a clj expression"
@@ -153,6 +155,7 @@
         [bar note] (get-pos (dec point) div)
         delta (if bar?
                 (cond
+                  (= point 1) div
                   (= "|" (:val token)) div
                   (= note div) 0
                   true (- div note))
@@ -161,7 +164,7 @@
     (condp = (:type token)
       t-rest (add-rest token text clip)
       t-paren-open (add-action token text clip false)
-      t-action-var (add-action token text clip false)
+      t-action-var (add-action-var token text clip)
       t-word (add-action token text clip false)
       t-bracket-open (add-action token text clip true)
       t-eof clip
@@ -229,6 +232,7 @@
  (defn- add-action [token text {:keys [point div args parse-until] :or {args {}} :as clip} group?]
   (let [pos (get-pos point div)
         after-group? (= t-bracket-close (:type token))
+        action-var-str (:action-var-str token)
         [is-action? action text action-str dynamic?]
         (condp = (:type token)
           t-word [true (:val token) text (:val token) false]
@@ -240,9 +244,14 @@
                (update-in pos
                           #(conj (vec %)
                                  (merge args {:action action
-                                              :action-str (str action-str)})))
+                                              :action-str (str action-str)}
+                                        (when action-var-str
+                                          {:action-var-str action-var-str}))))
                dynamic? (update :dynamic conj point))
         [token text] (next-token text)
+        token (if (and (not is-action?) action-var-str)
+                (assoc token :action-var-str action-var-str)
+                token)
         clip (update clip :point (if (or group?
                                          (= t-brace-open (:type token)))
                                    identity
@@ -263,35 +272,12 @@
 
 (defn- add-action-var [token text clip]
   (let [ac (get clip (:val token))
-        [token text] (next-token (str ac " " text))
-        group? (= (:type token) t-bracket-open)]
-    (add-action token text clip group?)))
+        [n-token text] (next-token (str ac " " text))
+        group? (= (:type n-token) t-bracket-open)]
+    (add-action (assoc n-token :action-var-str (:val token)) text clip group?)))
 
 (defn as-str [{:keys [div args point] :as clip} & {:keys [exclude-preamble? no-args-diff]}]
   (let [text (StringBuilder.)
-        ;; mk-action-str (fn [actions]
-        ;;                 (let [multi-action? (> (count actions) 1)
-        ;;                       [common-params] (if multi-action?
-        ;;                                         (diff
-        ;;                                          (reduce #(nth (diff (dissoc %1 :action :action-str) (dissoc %2 :action :action-str)) 2) actions)
-        ;;                                          args))
-        ;;                       action-str (->> actions
-        ;;                                       (map
-        ;;                                        #(let [a-params (-> (dissoc % :action :action-str) (diff common-params) first (diff args) first)]
-        ;;                                           (str (or (:action-str %) (:action %))
-        ;;                                                (if a-params (str " " (-> a-params str
-        ;;                                                                          (clojure.string/replace "\"" "")
-        ;;                                                                          (clojure.string/replace "," ""))
-        ;;                                                                  " "))
-        ;;                                                " ")))
-        ;;                                       join)]
-        ;;                   (.trim
-        ;;                    (if multi-action?
-        ;;                      (str "[" (.trim action-str) "]"
-        ;;                           (if common-params
-        ;;                             (str " " (-> common-params str (clojure.string/replace "\"" "")
-        ;;                                          (clojure.string/replace "," "")))))
-        ;;                      action-str))))
         [action-strs col-lens] (loop [actions {} lens {} p 1 last-action 0]
                                  (let [[bar note] (get-pos p div)
                                        has-action? (-> (get-in clip [bar note]) empty? not)

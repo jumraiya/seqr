@@ -335,7 +335,7 @@
     (send state (constantly default-state)))
   (send sender-idx (constantly 0))
   (doseq [{:keys [clips]} (vals @sender-threads)]
-    (doseq [cl clips]
+    (doseq [[_ _ _ _ cl] clips]
       (doseq [f (vals (get @callbacks clip-deleted))]
           (f cl))))
   (send sender-threads update-vals #(assoc % :clips []))

@@ -8,18 +8,19 @@
    (javax.swing JMenuBar JMenu JMenuItem JFileChooser)))
 
 
-(defn load-sketch [path editor state]
+(defn load-sketch [path editor state ui-reset-fn]
   (try
     (let [{:keys [bpm clips]} (read-string (slurp path))]
       (editor/reset-state)
       (sequencer/reset-state)
+      (ui-reset-fn)
       (doseq [c (mapv clip/parse-clip clips)]
         (editor/save-clip state c))
       (sequencer/set-bpm (or bpm 80)))
     (catch Exception e
       (prn "Error loading sketch" e))))
 
-(defn save-sketch [path state]
+(defn save-sketch [path state ui-reset-fn]
   (try
     (let [clips (reduce
                  #(conj %1 (second (clip/as-str %2)))
@@ -29,7 +30,7 @@
     (catch Exception e
       (prn "Error saving sketch" e))))
 
-(defn- save-load-sketch [editor state load?]
+(defn- save-load-sketch [editor state load? ui-reset-fn]
   (let [chooser (JFileChooser.)
         res (if load?
               (.showOpenDialog chooser editor)
@@ -39,15 +40,15 @@
                       (.getSelectedFile)
                       (.getAbsolutePath))]
         (if load?
-          (load-sketch path editor state)
-          (save-sketch path state))))))
+          (load-sketch path editor state ui-reset-fn)
+          (save-sketch path state ui-reset-fn))))))
 
 (defn- new-sketch [state]
   (send state (constantly {:clips [] :selected-clip nil}))
   (editor/reset-state)
   (sequencer/reset-state))
 
-(defn build [state]
+(defn build [state ui-reset-fn]
   (let [new (JMenuItem. "New")
         open (JMenuItem. "Open")
         save-as (JMenuItem. "Save As")
@@ -60,9 +61,9 @@
         (new-sketch state))
     (utils/add-action-listener
         open
-        (save-load-sketch (.getTopLevelAncestor open) state true))
+        (save-load-sketch (.getTopLevelAncestor open) state true ui-reset-fn))
     (utils/add-action-listener
         save-as
-        (save-load-sketch (.getTopLevelAncestor open) state false))
+        (save-load-sketch (.getTopLevelAncestor open) state false ui-reset-fn))
     (doto (JMenuBar.)
       (.add file-menu))))

@@ -12,8 +12,6 @@
 
 (conn/add-destination! "localhost" 57120 "sc-lang" se/sc-new-synth)
 
-(samples/reset-drum-kits)
-
 (conn/reset-receiver)
 
 (comment

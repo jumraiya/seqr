@@ -49,7 +49,7 @@
         clip-table (clip-table/create state)
         _ (add-key-bindings
            clip-pane [text-view table-view config] (-> clip-table (.getViewport) (.getView)) config)
-        menus (menu-bar/build state)
+        menus (menu-bar/build state reset-state)
         controls (controls/mk-bar)
         top-bar (JPanel.)
         content (doto (.getContentPane frame)
