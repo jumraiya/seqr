@@ -4,6 +4,7 @@
             [seqr.helper :refer [get-pos]]
             [seqr.music :as mu]
             [seqr.osc :as osc]
+            [seqr.samples :as samples]
             [seqr.sequencer :as sequencer]
             [seqr.connections :as conn]
             [seqr.serializers :as se])
@@ -17,11 +18,15 @@
   (osc/builder "/g_queryTree ?group:0 ?flag:0"))
 
 (def stop-gated
-  (osc/builder "/stop_gated 0"))
+  (osc/builder "/stop_gated"))
 
 (def n-set (osc/builder "/n_set ?node-id ?control ?val"))
 
+(def n-free (osc/builder "/n_set ?node-id"))
+
 (def n-query (osc/builder "/n_query ?node-id"))
+
+(def group-free-all (osc/builder "/g_freeAll ?group-id"))
 
 (def eval-sc-code (osc/builder "/eval_code ?code"))
 
@@ -170,55 +175,45 @@
               (:id node))
         (prn "Could not find mixer node")))))
 
-(defn- setup-mixer [{:keys [div name dest args] :as clip}]
-  (if (contains? #{"sc" "sc-lang"} dest)
-    (let [existing-gid (get-in @clip-mixer-data [name :group])
-          exists (when existing-gid
-                   (query-group existing-gid))
-          ;; is-gated? (or (contains? args "gate")
-          ;;               (some?
-          ;;                (let [x (transient [])]
-          ;;                  (postwalk #(if (and (map? %)
-          ;;                                      (contains? % :action)
-          ;;                                      (contains? % "gate"))
-          ;;                               (do (conj! x %) nil)
-          ;;                               %)
-          ;;                            clip)
-          ;;                  (first (persistent! x)))))
-          ]
-      (if (nil? exists)
-        (loop [i 0 g-id (swap! clip-group-num inc)]
-          (conn/send! "sc" (new-group {"id" g-id}))
-          (if (query-group g-id)
-            (when-let [bus (first @available-audio-buses)]
-              (ensure-mixer-node g-id name bus)
-              (send clip-mixer-data update name
-                    assoc :bus bus :group g-id
-                    ;:gated? is-gated?
-                    )
-              (swap! available-audio-buses disj bus)
-              (update clip :args
-                      assoc
-                      "target" g-id
-                      "outBus" bus))
-            (if (> i 9)
-              (do
-                (prn (str "could not assign group for " name))
-                clip)
-              (recur (inc i) (swap! clip-group-num inc)))))
-        (do
-          (ensure-mixer-node existing-gid name (get-in @clip-mixer-data [name :bus]))
-          (update clip :args
-                  assoc
-                  "target" existing-gid
-                  "outBus" (get-in @clip-mixer-data [name :bus])))))
-    clip))
+#trace
+ (defn- setup-mixer [{:keys [div name dest args] :as clip}]
+   (if (contains? #{"sc" "sc-lang"} dest)
+     (let [existing-gid (get-in @clip-mixer-data [name :group])
+           exists (when existing-gid
+                    (query-group existing-gid))]
+       (Thread/sleep 500) ;; Try to avoid overwhelming sc
+       (if (nil? exists)
+         (loop [i 0 g-id (swap! clip-group-num inc)]
+           (make-sync-request
+            (new-group {"id" g-id}))
+           (if (query-group g-id)
+             (when-let [bus (first @available-audio-buses)]
+               (ensure-mixer-node g-id name bus)
+               (send clip-mixer-data update name assoc :bus bus :group g-id)
+               (swap! available-audio-buses disj bus)
+               (update clip :args
+                       assoc
+                       "target" g-id
+                       "outBus" bus))
+             (if (> i 9)
+               (do
+                 (prn (str "could not assign group for " name))
+                 clip)
+               (recur (inc i) (swap! clip-group-num inc)))))
+         (do
+           (ensure-mixer-node existing-gid name (get-in @clip-mixer-data [name :bus]))
+           (update clip :args
+                   assoc
+                   "target" existing-gid
+                   "outBus" (get-in @clip-mixer-data [name :bus])))))
+     clip))
 
 
 (defn- delete-clip-group [{:keys [name dest]}]
   (when (= "sc" dest)
     (when-let [data (get @clip-mixer-data name)]
-      (conn/send! "sc" (rm-group {"id" (:group data)}))
+      (conn/send! "sc" (group-free-all {"group-id" (:group data)}))
+      (conn/send! "sc" (n-free {"node-id" (:group data)}))
       (send clip-mixer-data dissoc name)
       (swap! available-audio-buses conj (get-in @clip-mixer-data [name :bus])))))
 
@@ -234,8 +229,10 @@
 
 
 (defn- register-callbacks []
-  (sequencer/register-callback sequencer/clip-saved :setup-mixer setup-mixer)
-  (sequencer/register-callback sequencer/clip-deleted :rm-sc-group delete-clip-group))
+  (sequencer/register-callback sequencer/clip-saved :setup-mixer #'setup-mixer)
+  (sequencer/register-callback sequencer/clip-deleted :rm-sc-group #'delete-clip-group)
+  (sequencer/register-callback
+   sequencer/sequencer-paused :stop-gated #(conn/send! "sc-lang" (stop-gated {}))))
 
 (defn- reset-audio-buses []
   (doseq [b @available-audio-buses]
@@ -275,29 +272,43 @@
             (when (and proc
                        (.isAlive proc)
                        (not= (.pid proc) @current-sc-synth))
-              (Thread/sleep 2000) ;; process might still be booting
-              (reset! current-sc-synth (.pid proc))
-              (sequencer/reprocess-clips))
+              (when (loop [i 0]
+                      (if (< i 10)
+                        (if (some? (query-group 0))
+                          true
+                          (do
+                            (Thread/sleep 1000)
+                            (recur (inc i))))
+                        (prn "Waiting for sc boot timed out")))
+                (reset! current-sc-synth (.pid proc))
+                (send clip-mixer-data (constantly {}))
+                (conn/send! "sc" (group-free-all {"group-id" 0}))
+                (reset-audio-buses)
+                (samples/reset-drum-kits)
+                (await-for 1000 clip-mixer-data)
+                (sequencer/reprocess-clips)))
             (Thread/sleep 1000))
           (catch Exception e
             (prn "Error monitoring sc-synth " (.getMessage e))))))))
 
 (defn- reset-sc-synth-monitor []
   (reset! monitoring-sc? false)
-  (loop [i 0]
-    (if (< i 2)
-     (if (and sc-synth-monitor-thread
-              (not= Thread$State/TERMINATED
-                    (.getState ^Thread sc-synth-monitor-thread)))
-       (do
-         (Thread/sleep 1000)
-         (recur (inc i))))
-     (prn "could not terminate sc-synth monitor")))
-  (reset! monitoring-sc? true)
-  (let [t (mk-sc-synth-monitor)]
-    (alter-var-root (var sc-synth-monitor-thread)
-                    (constantly t))
-    (.start t)))
+  (when
+   (loop [i 0]
+     (if (< i 3)
+       (if (and sc-synth-monitor-thread
+                (not= Thread$State/TERMINATED
+                      (.getState ^Thread sc-synth-monitor-thread)))
+         (do
+           (Thread/sleep 1000)
+           (recur (inc i)))
+         true)
+       (prn "could not terminate sc-synth monitor")))
+    (reset! monitoring-sc? true)
+    (let [t (mk-sc-synth-monitor)]
+      (alter-var-root (var sc-synth-monitor-thread)
+                      (constantly t))
+      (.start t))))
 
 
 (defn setup []
