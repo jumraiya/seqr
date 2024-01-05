@@ -65,14 +65,43 @@
                     (str (System/getProperty "user.home")
                          "/samples/Drum Kits") true))))
 
- (defn drum [{:strs [kit] :keys [action] :as data}]
-   (let [pat (re-pattern (str "(?i).*" (string/join ".*" (string/split kit #"[^a-zA-Z0-9]+")) ".*"))
-         kit (first (filter #(re-matches pat %)
+(defn- next-token [text]
+  (if text
+    (let [text (.trim text)
+          [match letters nums other]
+          (re-find #"([a-zA-Z]+)|([0-9]+)|([^a-zA-Z0-9]+)" text)]
+      [(cond
+         (some? letters) {:type :alpha :val letters}
+         (some? nums) {:type :num :val nums}
+         (some? other) {:type :other :val other}
+         :else {:type :eof})
+       (if (and text match (> (.length text) (.length match)))
+         (.substring text (.length match)))])
+    [{:type :eof}]))
+
+(defn- gen-sample-pat
+  ([in]
+   (let [[f-tok] (next-token in)]
+     (gen-sample-pat in {:exp (StringBuilder. "(?i)")})))
+  ([in state]
+   (let [[{:keys [type val]} text] (next-token in)]
+     (condp = type
+       :alpha (gen-sample-pat
+               text
+               (update state :exp #(.append % (str ".*" val))))
+       :num (gen-sample-pat
+             text
+             (update state :exp #(.append % (str ".*" val))))
+       :other (gen-sample-pat text state)
+       :eof (re-pattern (.toString (.append (:exp state) ".*")))))))
+
+(defn drum [{:strs [kit] :keys [action] :as data}]
+   (let [k-pat (gen-sample-pat kit)
+         a-pat (gen-sample-pat action)
+         kit (first (filter #(re-matches k-pat %)
                             (keys drum-kits)))
-         [_ t n] (re-find #"([a-z]+)([0-9]+)" action)
          buf-num (some (fn [[s b]]
-                         (when (re-matches (re-pattern (str "(?i).*" t ".*" n ".*"))
-                                           (name s))
+                         (when (re-matches a-pat (name s))
                            b))
                        (get drum-kits kit))]
      (if buf-num

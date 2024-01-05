@@ -235,32 +235,33 @@
       (set-clip (:data @cur-clip)))
     [split-pane pane text-editor table-editor (.getView (.getViewport config))]))
 
-(defn highlight-action [counter]
-  (let [pos (helper/get-pos
-             counter
-             (-> @cur-clip :data :div)
-             {:player-div (:div @sequencer/state)
-              :size (dec (-> @cur-clip :data :point))})]
-    (if (= (.getView (.getViewport @clip-editor)) @clip-table-editor)
-      (when (first pos)
-        (reset! active-cell pos)
-        (.fireTableCellUpdated (.getModel @clip-table-editor)
-                                 (dec (first pos))
-                                 (dec (second pos)))
-        (future
-          (Thread/sleep 300)          
+ (defn highlight-action [counter]
+  (let [{:keys [point div]} (:data @cur-clip)
+        player-div (:div @sequencer/state)
+        counter (helper/get-wrapped-point counter div (dec point) player-div)]
+    (when-let [pos (and counter
+                        (helper/get-pos
+                         counter div))]
+      (if (= (.getView (.getViewport @clip-editor)) @clip-table-editor)
+        (when (first pos)
+          (reset! active-cell pos)
           (.fireTableCellUpdated (.getModel @clip-table-editor)
                                  (dec (first pos))
-                                 (dec (second pos)))))
-      (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
-        (let [[start end] offsets
-              doc (.getStyledDocument @clip-text-editor)
-              active-action (.getStyle doc "active-action")
-              default (.getStyle doc "editor-default")] 
-          (.setCharacterAttributes doc start (- end start) active-action true)
+                                 (dec (second pos)))
           (future
             (Thread/sleep 300)
-            (.setCharacterAttributes doc  start (- end start) default true)))))))
+            (.fireTableCellUpdated (.getModel @clip-table-editor)
+                                   (dec (first pos))
+                                   (dec (second pos)))))
+        (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
+          (let [[start end] offsets
+                doc (.getStyledDocument @clip-text-editor)
+                active-action (.getStyle doc "active-action")
+                default (.getStyle doc "editor-default")]
+            (.setCharacterAttributes doc start (- end start) active-action true)
+            (future
+              (Thread/sleep 300)
+              (.setCharacterAttributes doc  start (- end start) default true))))))))
 
 (comment  
   (def cl (clip/parse-clip "{:args {t 2 atk 0.01 a 2 b 3 g 3 r 12}} a :2 b {t 1}"))

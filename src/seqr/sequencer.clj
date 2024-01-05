@@ -293,6 +293,13 @@
 
 (defn pause []
   (send state assoc :running? false)
+  (send state (fn [s]
+                (let [div (or (apply helper/lcmv
+                                     (into [] (comp (map :clips)
+                                                    (mapcat #(map last %))
+                                                    (mapv :div))
+                                           (vals @sender-threads))) 4)]
+                  (assoc s :div div :period (long (/ 60000 (:bpm s 80) div))))))
   (doseq [l (vals (get @callbacks sequencer-paused))]
     (l)))
 

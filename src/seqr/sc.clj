@@ -175,8 +175,7 @@
               (:id node))
         (prn "Could not find mixer node")))))
 
-#trace
- (defn- setup-mixer [{:keys [div name dest args] :as clip}]
+(defn- setup-mixer [{:keys [div name dest args] :as clip}]
    (if (contains? #{"sc" "sc-lang"} dest)
      (let [existing-gid (get-in @clip-mixer-data [name :group])
            exists (when existing-gid
@@ -223,9 +222,10 @@
       (let [{:keys [id controls]}
             (some #(when (= (:id %) (get-in @clip-mixer-data [name :mixer]))
                      %)
-                  children)]
-        (conn/send! "sc" (n-set {"node-id" id "control" "volume" "val"
-                                 (+ (get controls "volume") add)}))))))
+                  children)
+            new-vol (+ (get controls "volume") add)]
+        (when (>= new-vol 0.000001)
+         (conn/send! "sc" (n-set {"node-id" id "control" "volume" "val" new-vol})))))))
 
 
 (defn- register-callbacks []
