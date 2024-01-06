@@ -66,7 +66,7 @@
 
 (register-midi-interpreter "note" midi->note)
 
-(defn scale [{:keys [action] :strs [scale] :as data}]
+#_(defn scale [{:keys [action] :strs [scale] :as data}]
   (when scale
     (let [[root type] (re-seq #"[^\s]+" scale)
           scale (mu/scale (keyword root) (keyword type))
@@ -95,4 +95,43 @@
                         (dissoc :action-str)
                         (assoc "note" n "freq" (mu/midi->hz n)))))))))
 
+(defn scale [{:keys [action] :strs [scale] :as data}]
+  (let [[root type] (re-seq #"[^\s]+" scale)
+        scale (mu/scale (keyword root) (keyword type))
+        scale (if (= 0 (mod (last scale) (first scale)))
+                (butlast scale) scale)
+        pitches (cycle scale)
+        [s no modify oct] (first (re-seq
+                                  #"([0-9]+)([b#><]+)*\|?([1-9]+)?"
+                                  (str action)))
+        no (Integer/parseInt no)
+        n (nth pitches
+               (dec
+                no))
+        n (+ n (* 12 (int (/ no (count scale)))))
+        n (if (not (nil? oct))
+            (-> n mu/find-pitch-class-name name (str oct) keyword mu/note)
+            n)
+        n (if (not (nil? modify))
+            (reduce (fn [n m]
+                      (cond (= \b m) (dec n)
+                            (= \# m) (inc n)
+                            (= \> m) (+ 12 n)
+                            (= \< m) (- n 12)
+                            true n
+                            ))
+                    n modify)
+            n)
+        freq (mu/midi->hz n)]
+    (assoc data :args
+           (flatten
+            (into []
+                  (-> data
+                      (dissoc "scale")
+                      (dissoc :action)
+                      (dissoc :action-str)
+                      (assoc "note" n "freq" (mu/midi->hz n))))))))
+
 (register-interpreter "scale" scale)
+
+
