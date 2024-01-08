@@ -1,6 +1,6 @@
 (ns seqr.sequencer
   (:require
-l   [seqr.clip :as clip]
+   [seqr.clip :as clip]
    [seqr.helper :as helper]
    [seqr.connections :as conn]
    [seqr.interpreters :as in]

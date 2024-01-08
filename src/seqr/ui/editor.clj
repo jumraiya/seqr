@@ -125,87 +125,116 @@
     (isCellEditable [row col]
       true)))
 
- (defn- shift-clip [editor text-editor table-editor ui-state direction]
-   (let [[bar note] (if (= text-editor (-> editor (.getViewport) (.getView)))
-                      (some
-                       (fn [[bar locs]]
-                         (some
-                          #(when (and (>= (.getCaretPosition text-editor)
-                                          (-> % second first))
-                                      (<= (.getCaretPosition text-editor)
-                                          (-> % second second)))
-                             [bar (first %)])
-                          locs))
-                       (:positions @cur-clip))
-                      (when (-> table-editor
-                                (.getModel)
-                                (.getValueAt (.getSelectedRow table-editor)
-                                             (.getSelectedColumn table-editor))
-                                empty? not)
-                        [(inc (.getSelectedRow table-editor))
-                         (inc (.getSelectedColumn table-editor))]))]
-     (when (and bar note)
-       (let [point (helper/get-point bar note (-> @cur-clip :data :div))
-             new-clip  (if (= :left direction)
-                         (clip/shift-left (:data @cur-clip) point)
-                         (clip/shift-right (:data @cur-clip) point))]
-         (save-clip ui-state new-clip)))))
+ (defn- shift-clip [point ui-state direction]
+  (let [new-clip  (if (= :left direction)
+                    (clip/shift-left (:data @cur-clip) point)
+                    (clip/shift-right (:data @cur-clip) point))]
+    (save-clip ui-state new-clip)))
+
+(defn- find-text-point [text]
+  (let [[bar note] (some
+                      (fn [[bar locs]]
+                        (some
+                         #(when (and (>= (.getCaretPosition text)
+                                         (-> % second first))
+                                     (<= (.getCaretPosition text)
+                                         (-> % second second)))
+                            [bar (first %)])
+                         locs))
+                      (:positions @cur-clip))]
+    (when (and bar note)
+      (helper/get-point bar note (-> @cur-clip :data :div)))))
+
+(defn- find-table-point [table-editor]
+  (when (-> table-editor
+            (.getModel)
+            (.getValueAt (.getSelectedRow table-editor)
+                         (.getSelectedColumn table-editor))
+            empty? not)
+    (helper/get-point (inc (.getSelectedRow table-editor))
+                      (inc (.getSelectedColumn table-editor))
+                      (-> @cur-clip :data :div))))
+
+(defn- find-tracker-point [tracker]
+  (let [point (helper/get-wrapped-point
+               (inc (.getSelectedRow tracker))
+               (-> @cur-clip :data :div)
+               (dec (-> @cur-clip :data :point))
+               (sequencer/get-div))
+        [b n] (helper/get-pos point (-> @cur-clip :data :div))]
+    (when (seq (get-in @cur-clip [:data b n]))
+      point)))
 
 (defn- add-keybindings [ui-state editor text table tracker config-table]
   (utils/add-key-action config-table "control DOWN" "focus-editor"
-    (.requestFocusInWindow (.getView (.getViewport editor))))
+                        (.requestFocusInWindow (.getView (.getViewport editor))))
 
   (doseq [c [text table]]
     (utils/add-key-action c "control UP" "focus-config"
-      (.requestFocusInWindow config-table)))
+                          (.requestFocusInWindow config-table)))
 
   (utils/add-key-action text "control T" "toggle-table-mode"
-    (.setViewportView editor table)
-    (.requestFocusInWindow table)
-    (send ui-state assoc ::cur-view :table))
+                        (.setViewportView editor table)
+                        (.requestFocusInWindow table)
+                        (send ui-state assoc ::cur-view :table))
 
   (utils/add-key-action text "control L" "toggle-tracker-mode"
-    (.setViewportView editor tracker)
-    (.requestFocusInWindow tracker))
+                        (.setViewportView editor tracker)
+                        (.requestFocusInWindow tracker))
 
   (utils/add-key-action tracker "control L" "toggle-tracker-mode"
-    (case (::cur-view @ui-state :text)
-      :text (do
-              (.setViewportView editor text)
-              (.requestFocusInWindow text))
-      :table (do
-              (.setViewportView editor table)
-              (.requestFocusInWindow table))))
-  
-  (utils/add-key-action-with-focus
-      table "control T" "toggle-table-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
-      (.setViewportView editor text)
-      (.requestFocusInWindow text)
-      (send ui-state assoc ::cur-view :text))
+                        (case (::cur-view @ui-state :text)
+                          :text (do
+                                  (.setViewportView editor text)
+                                  (.requestFocusInWindow text))
+                          :table (do
+                                   (.setViewportView editor table)
+                                   (.requestFocusInWindow table))))
 
   (utils/add-key-action-with-focus
-      table "control L" "toggle-tracker-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
-    (.setViewportView editor tracker)
-    (.requestFocusInWindow tracker))
+   table "control T" "toggle-table-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
+   (.setViewportView editor text)
+   (.requestFocusInWindow text)
+   (send ui-state assoc ::cur-view :text))
+
+  (utils/add-key-action-with-focus
+   table "control L" "toggle-tracker-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
+   (.setViewportView editor tracker)
+   (.requestFocusInWindow tracker))
 
   (utils/add-key-action text "control S" "save-clip"
-    (let [config (clip-config/get-config-map
-                  (-> @clip-config-editor (.getViewport) (.getView)))]
-      (when (:div config)
-        (save-clip ui-state (clip/parse-clip
-                             (.getText text)
-                             config)))))
+                        (let [config (clip-config/get-config-map
+                                      (-> @clip-config-editor (.getViewport) (.getView)))]
+                          (when (:div config)
+                            (save-clip ui-state (clip/parse-clip
+                                                 (.getText text)
+                                                 config)))))
 
-  (doseq [c [text table]]
-    (utils/add-key-action c "shift control LEFT" "shift-left"
-      (shift-clip editor text table ui-state :left))
+  (utils/add-key-action text "shift control LEFT" "shift-left"
+                        (when-let [point (find-text-point text)]
+                          (shift-clip point ui-state :left)))
 
-    (utils/add-key-action c "shift control RIGHT" "shift-right"
-      (shift-clip editor text table ui-state :right)))
-  
-  #_(doseq [c [table config-table]]
-      (utils/add-key-action c "control S" "save-clip"
-                            (save-clip ui-state))))
+  (utils/add-key-action text "shift control RIGHT" "shift-right"
+                        (when-let [point (find-text-point text)]
+                          (shift-clip point ui-state :right)))
+
+  (utils/add-key-action table "shift control LEFT" "shift-left"
+                        (when-let [point (find-table-point table)]
+                          (shift-clip point ui-state :left)))
+
+  (utils/add-key-action table "shift control RIGHT" "shift-right"
+                        (when-let [point (find-table-point table)]
+                          (shift-clip point ui-state :right)))
+
+  (utils/add-key-action tracker "shift control DOWN" "shift-right"
+                        (when-let [point (find-tracker-point tracker)]
+                          (shift-clip point ui-state :right)
+                          (.fireTableDataChanged (.getModel tracker))))
+
+  (utils/add-key-action tracker "shift control UP" "shift-left"
+                        (when-let [point (find-tracker-point tracker)]
+                          (shift-clip point ui-state :left)
+                          (.fireTableDataChanged (.getModel tracker)))))
 
 (defn- mk-table-editor []
   (proxy [JTable] []
@@ -276,41 +305,48 @@
     [split-pane pane text-editor table-editor (.getView (.getViewport config)) tracker]))
 
  (defn highlight-action [counter]
-   (if (= (.getView (.getViewport @clip-editor)) @tracker-view)
-     (do
-       (reset! tracker/active-row (dec counter))
-       (-> @tracker-view (.getModel) (.fireTableRowsUpdated (dec counter) (dec counter)))
-       (future
-         (Thread/sleep 100)
-         (-> @tracker-view
-             (.getModel)
-             (.fireTableRowsUpdated (dec counter) (dec counter)))))
-     (let [{:keys [point div]} (:data @cur-clip)
-           player-div (:div @sequencer/state)
-           counter (helper/get-wrapped-point counter div (dec point) player-div)]
-       (when-let [pos (and counter
-                           (helper/get-pos
-                            counter div))]
-         (if (= (.getView (.getViewport @clip-editor)) @clip-table-editor)
-           (when (first pos)
-             (reset! active-cell pos)
-             (.fireTableCellUpdated (.getModel @clip-table-editor)
-                                    (dec (first pos))
-                                    (dec (second pos)))
-             (future
-               (Thread/sleep 300)
-               (.fireTableCellUpdated (.getModel @clip-table-editor)
-                                      (dec (first pos))
-                                      (dec (second pos)))))
-           (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
-             (let [[start end] offsets
-                   doc (.getStyledDocument @clip-text-editor)
-                   active-action (.getStyle doc "active-action")
-                   default (.getStyle doc "editor-default")]
-               (.setCharacterAttributes doc start (- end start) active-action true)
-               (future
-                 (Thread/sleep 300)
-                 (.setCharacterAttributes doc  start (- end start) default true)))))))))
+  (if (= (.getView (.getViewport @clip-editor)) @tracker-view)
+    (let [scroll-pos (* counter (.getRowHeight @tracker-view))
+          model (.getModel (.getVerticalScrollBar @clip-editor))]
+      (reset! tracker/active-row (dec counter))
+      (-> @tracker-view
+          (.getModel)
+          (.fireTableRowsUpdated (dec counter) (dec counter)))
+      (future
+        (Thread/sleep 10)
+        (-> @tracker-view
+            (.getModel)
+            (.fireTableRowsUpdated (max 0 (- counter 2)) (dec counter))))
+      (when (or (< scroll-pos (.getValue model))
+                (> scroll-pos (+ (.getValue model) (.getExtent model))))
+        (.setValue (.getVerticalScrollBar @clip-editor) scroll-pos)
+        (.fireTableDataChanged (.getModel @tracker-view))))
+    (let [{:keys [point div]} (:data @cur-clip)
+          player-div (:div @sequencer/state)
+          counter (helper/get-wrapped-point counter div (dec point) player-div)]
+      (when-let [pos (and counter
+                          (helper/get-pos
+                           counter div))]
+        (if (= (.getView (.getViewport @clip-editor)) @clip-table-editor)
+          (when (first pos)
+            (reset! active-cell pos)
+            (.fireTableCellUpdated (.getModel @clip-table-editor)
+                                   (dec (first pos))
+                                   (dec (second pos)))
+            (future
+              (Thread/sleep 300)
+              (.fireTableCellUpdated (.getModel @clip-table-editor)
+                                     (dec (first pos))
+                                     (dec (second pos)))))
+          (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
+            (let [[start end] offsets
+                  doc (.getStyledDocument @clip-text-editor)
+                  active-action (.getStyle doc "active-action")
+                  default (.getStyle doc "editor-default")]
+              (.setCharacterAttributes doc start (- end start) active-action true)
+              (future
+                (Thread/sleep 300)
+                (.setCharacterAttributes doc  start (- end start) default true)))))))))
 
 (comment  
   (def cl (clip/parse-clip "{:args {t 2 atk 0.01 a 2 b 3 g 3 r 12}} a :2 b {t 1}"))
