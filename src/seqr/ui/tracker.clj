@@ -2,7 +2,8 @@
   (:require
    [seqr.sequencer :as sequencer]
    [seqr.helper :as helper]
-   [seqr.clip :as clip])
+   [seqr.clip :as clip]
+   [seqr.ui.utils :as utils])
   (:import
    (javax.swing JTable JLabel)
    (javax.swing.border LineBorder)
@@ -95,6 +96,14 @@
                 (.setModel model)
                 (.setTableHeader nil)
                 (.addFocusListener focus-listener))]
+    (utils/add-key-action
+     table "control E" "edit-action"
+     (let [r (.getSelectedRow table)
+           c (.getSelectedColumn table)
+           val (.getValueAt (.getModel table) r c)]
+       (utils/show-text-input-dialog
+        (.getTopLevelAncestor (.getSource e)) "Edit" val
+        #(.setValueAt (.getModel table) % r c))))
     (sequencer/register-callback sequencer/clip-made-active :refresh-tracker
                                  (fn [_]
                                    (.fireTableStructureChanged model)))
