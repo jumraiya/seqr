@@ -5,6 +5,7 @@
    [seqr.interpreters :as inter]
    [seqr.helper :as helper]
    [seqr.ui.clip-config :as clip-config]
+   [seqr.ui.tracker :as tracker]
    [seqr.ui.utils :as utils]
    [seqr.sequencer :as sequencer]
    [seqr.music :as m])
@@ -38,6 +39,8 @@
 (defonce ^:private clip-table-editor (atom nil))
 
 (defonce ^:private clip-config-editor (atom nil))
+
+(defonce ^:private tracker-view (atom nil))
 
 (defonce ^:private cur-clip (agent nil))
 
@@ -148,30 +151,50 @@
                          (clip/shift-right (:data @cur-clip) point))]
          (save-clip ui-state new-clip)))))
 
-(defn- add-keybindings [ui-state editor text table config-table]
+(defn- add-keybindings [ui-state editor text table tracker config-table]
   (utils/add-key-action config-table "control DOWN" "focus-editor"
-                        (.requestFocusInWindow (.getView (.getViewport editor))))
+    (.requestFocusInWindow (.getView (.getViewport editor))))
 
   (doseq [c [text table]]
     (utils/add-key-action c "control UP" "focus-config"
-                          (.requestFocusInWindow config-table)))
+      (.requestFocusInWindow config-table)))
 
   (utils/add-key-action text "control T" "toggle-table-mode"
-                        (.setViewportView editor table)
-                        (.requestFocusInWindow table))
+    (.setViewportView editor table)
+    (.requestFocusInWindow table)
+    (send ui-state assoc ::cur-view :table))
+
+  (utils/add-key-action text "control L" "toggle-tracker-mode"
+    (.setViewportView editor tracker)
+    (.requestFocusInWindow tracker))
+
+  (utils/add-key-action tracker "control L" "toggle-tracker-mode"
+    (case (::cur-view @ui-state :text)
+      :text (do
+              (.setViewportView editor text)
+              (.requestFocusInWindow text))
+      :table (do
+              (.setViewportView editor table)
+              (.requestFocusInWindow table))))
+  
+  (utils/add-key-action-with-focus
+      table "control T" "toggle-table-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
+      (.setViewportView editor text)
+      (.requestFocusInWindow text)
+      (send ui-state assoc ::cur-view :text))
 
   (utils/add-key-action-with-focus
-   table "control T" "toggle-table-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
-   (.setViewportView editor text)
-   (.requestFocusInWindow text))
+      table "control L" "toggle-tracker-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
+    (.setViewportView editor tracker)
+    (.requestFocusInWindow tracker))
 
   (utils/add-key-action text "control S" "save-clip"
     (let [config (clip-config/get-config-map
                   (-> @clip-config-editor (.getViewport) (.getView)))]
       (when (:div config)
-          (save-clip ui-state (clip/parse-clip
-                               (.getText text)
-                               config)))))
+        (save-clip ui-state (clip/parse-clip
+                             (.getText text)
+                             config)))))
 
   (doseq [c [text table]]
     (utils/add-key-action c "shift control LEFT" "shift-left"
@@ -219,6 +242,8 @@
              (utils/show-text-input-dialog
               (.getTopLevelAncestor (.getSource e)) "Edit" val #(.setValueAt (.getModel table-editor) % r c))))
         _ (reset! clip-table-editor table-editor)
+        tracker (tracker/build state set-clip save-clip)
+        _ (reset! tracker-view tracker)
         pane (doto (JScrollPane. text-editor)
                (.setPreferredSize (Dimension. 800 500)))
         _ (reset! clip-editor pane)
@@ -226,42 +251,66 @@
                 cur-clip state save-clip pane
                 (conn/get-destinations) (inter/get-interpreters))
         _ (reset! clip-config-editor config)
-        _ (add-keybindings state pane text-editor table-editor (.getView (.getViewport config)))
+        _ (add-keybindings state pane text-editor table-editor tracker (.getView (.getViewport config)))
         split-pane (doto (JSplitPane. JSplitPane/VERTICAL_SPLIT true config pane)
                      (.setOneTouchExpandable true)
                      (.setDividerSize 10))]
     (add-styles text-editor)
+    (sequencer/register-callback
+     sequencer/sequencer-paused :reset-highlight
+     #(cond
+        (= (.getView (.getViewport @clip-editor)) @tracker-view)
+        (do
+          (reset! tracker/active-row nil)
+          (.fireTableDataChanged (.getModel @tracker-view)))
+        (= (.getView (.getViewport @clip-editor)) @clip-table-editor)
+        (do
+          (reset! active-cell nil)
+          (.fireTableDataChanged (.getModel @clip-table-editor)))
+        :else
+        (let [doc (.getStyledDocument @clip-text-editor)
+              default (.getStyle doc "editor-default")]
+          (.setCharacterAttributes doc 0 (.length ^String (.getText @clip-text-editor)) default true))))
     (when (some? (:data @cur-clip))
       (set-clip (:data @cur-clip)))
-    [split-pane pane text-editor table-editor (.getView (.getViewport config))]))
+    [split-pane pane text-editor table-editor (.getView (.getViewport config)) tracker]))
 
  (defn highlight-action [counter]
-  (let [{:keys [point div]} (:data @cur-clip)
-        player-div (:div @sequencer/state)
-        counter (helper/get-wrapped-point counter div (dec point) player-div)]
-    (when-let [pos (and counter
-                        (helper/get-pos
-                         counter div))]
-      (if (= (.getView (.getViewport @clip-editor)) @clip-table-editor)
-        (when (first pos)
-          (reset! active-cell pos)
-          (.fireTableCellUpdated (.getModel @clip-table-editor)
-                                 (dec (first pos))
-                                 (dec (second pos)))
-          (future
-            (Thread/sleep 300)
-            (.fireTableCellUpdated (.getModel @clip-table-editor)
-                                   (dec (first pos))
-                                   (dec (second pos)))))
-        (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
-          (let [[start end] offsets
-                doc (.getStyledDocument @clip-text-editor)
-                active-action (.getStyle doc "active-action")
-                default (.getStyle doc "editor-default")]
-            (.setCharacterAttributes doc start (- end start) active-action true)
-            (future
-              (Thread/sleep 300)
-              (.setCharacterAttributes doc  start (- end start) default true))))))))
+   (if (= (.getView (.getViewport @clip-editor)) @tracker-view)
+     (do
+       (reset! tracker/active-row (dec counter))
+       (-> @tracker-view (.getModel) (.fireTableRowsUpdated (dec counter) (dec counter)))
+       (future
+         (Thread/sleep 100)
+         (-> @tracker-view
+             (.getModel)
+             (.fireTableRowsUpdated (dec counter) (dec counter)))))
+     (let [{:keys [point div]} (:data @cur-clip)
+           player-div (:div @sequencer/state)
+           counter (helper/get-wrapped-point counter div (dec point) player-div)]
+       (when-let [pos (and counter
+                           (helper/get-pos
+                            counter div))]
+         (if (= (.getView (.getViewport @clip-editor)) @clip-table-editor)
+           (when (first pos)
+             (reset! active-cell pos)
+             (.fireTableCellUpdated (.getModel @clip-table-editor)
+                                    (dec (first pos))
+                                    (dec (second pos)))
+             (future
+               (Thread/sleep 300)
+               (.fireTableCellUpdated (.getModel @clip-table-editor)
+                                      (dec (first pos))
+                                      (dec (second pos)))))
+           (when-let [offsets (seq (get-in (:positions @cur-clip) pos))]
+             (let [[start end] offsets
+                   doc (.getStyledDocument @clip-text-editor)
+                   active-action (.getStyle doc "active-action")
+                   default (.getStyle doc "editor-default")]
+               (.setCharacterAttributes doc start (- end start) active-action true)
+               (future
+                 (Thread/sleep 300)
+                 (.setCharacterAttributes doc  start (- end start) default true)))))))))
 
 (comment  
   (def cl (clip/parse-clip "{:args {t 2 atk 0.01 a 2 b 3 g 3 r 12}} a :2 b {t 1}"))

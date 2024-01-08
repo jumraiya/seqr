@@ -19,7 +19,7 @@
 (defn reset-state []
   (send state (constantly {:clips [] :selected-clip nil})))
 
-(defn- add-key-bindings [clip-pane components clip-table clip-config]
+(defn- add-key-bindings [clip-pane [text-view table-view config tracker :as components] clip-table clip-config]
   (doseq [c components]
     (utils/add-key-action c "control RIGHT" "focus-clip-table"
       (.requestFocusInWindow clip-table)))
@@ -36,7 +36,9 @@
                             (:clips @state))]
         (editor/set-clip clip)
         (send state assoc :selected-clip (:name clip))
-        (.requestFocusInWindow (.getView (.getViewport clip-pane)))))))
+        (.requestFocusInWindow (.getView (.getViewport clip-pane)))
+        (.setViewportView clip-pane text-view)
+        (.requestFocusInWindow text-view)))))
 
 
 (defn create-ui []
@@ -45,10 +47,11 @@
   (let [frame (doto (JFrame. "Editor")
                 (.setDefaultCloseOperation JFrame/DISPOSE_ON_CLOSE)
                 (.setLayout (BorderLayout.)))
-        [editor clip-pane text-view table-view config] (editor/create-editor state)
+        [editor clip-pane text-view table-view config tracker] (editor/create-editor state)
         clip-table (clip-table/create state)
         _ (add-key-bindings
-           clip-pane [text-view table-view config] (-> clip-table (.getViewport) (.getView)) config)
+           clip-pane [text-view table-view config tracker]
+           (-> clip-table (.getViewport) (.getView)) config)
         menus (menu-bar/build state reset-state)
         controls (controls/mk-bar)
         top-bar (JPanel.)

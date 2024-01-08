@@ -90,7 +90,7 @@
 (defn is-action-var? [v]
   (and (string? v) (.startsWith ^String v "$")))
 
-(defn- mk-action-str [actions {:keys [args]}]
+(defn mk-action-str [actions {:keys [args]}]
   (if-let [action-var-str (-> actions first :action-var-str)]
     action-var-str
     (let [multi-action? (> (count actions) 1)

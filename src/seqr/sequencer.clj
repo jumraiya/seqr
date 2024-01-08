@@ -1,6 +1,6 @@
 (ns seqr.sequencer
   (:require
-   [seqr.clip :as clip]
+l   [seqr.clip :as clip]
    [seqr.helper :as helper]
    [seqr.connections :as conn]
    [seqr.interpreters :as in]
@@ -173,13 +173,32 @@
 (defn get-bpm []
   (:bpm @state 80))
 
-(defn- get-size [state]
-  (reduce (fn [s [_ div point]]
-            (max s (* point
-                      (/ (:div state) div))))
-          0
-          (filter #(contains? (:active-slots state) (first %))
-                  (mapcat :clips (vals @sender-threads)))))
+(defn get-div []
+  (:div @state 4))
+
+(defn get-size
+  ([]
+   (:size @state))
+  ([state]
+   (reduce (fn [s [_ div point]]
+             (max s (* point
+                       (/ (:div state) div))))
+           0
+           (filter #(contains? (:active-slots state) (first %))
+                   (mapcat :clips (vals @sender-threads))))))
+
+(defn get-active-clip-names []
+  (into #{}
+        (comp
+         (map :clips)
+         (mapcat #(into [] (comp
+                            (filter
+                             (fn [[slot]]
+                               (contains? (:active-slots @state) slot)))
+                            (map last)
+                            (map :name))
+                        %)))
+        (vals @sender-threads)))
 
 (defn save-clip [{:keys [name div point dest] :as clip} & [play?]]
   (when (and name div point dest)
@@ -203,8 +222,7 @@
                          (-> new-state
                              (assoc :size (get-size new-state))
                              (assoc :period (long (/ 60000 (:bpm new-state)
-                                                     (:div new-state)))))))))
-      )))
+                                                     (:div new-state))))))))))))
 
 (defn set-clip-active [name active?]
   (when-let [slot (get-in @state [:clip-slots name])]
