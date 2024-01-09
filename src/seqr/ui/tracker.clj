@@ -70,7 +70,6 @@
           (.setBorder scroll-pane nil))
         (catch Exception e)))))
 
-
 (defn- build-table [state set-clip-fn]
   (proxy [JTable] []
     (getCellRenderer [row col]
@@ -78,15 +77,31 @@
         (getTableCellRendererComponent [this table value isSelected hasFocus row col]
           (let [f (doto (JLabel. ^String (str value))
                     (.setFont (Font. "Monospaced" Font/PLAIN 16)))]
+
+            (when (contains? (set (.getSelectedRows table)) row)
+              (doto f
+                (.setBackground Color/WHITE)
+                (.setForeground Color/BLACK)
+                (.setBorder (LineBorder. Color/BLACK 1))
+                (.setOpaque true)))
+            (when-let [[start end] (sequencer/get-play-window)]
+              (when
+               (and (>= (inc row) start) (<= (inc row) end))
+                (doto f
+                  (.setBackground Color/GREEN)
+                  (.setForeground Color/BLACK)
+                  (.setBorder (LineBorder. Color/BLACK 1))
+                  (.setOpaque true))))
             (when (= row @active-row)
               (doto f
                 (.setBackground (.brighter Color/YELLOW))
                 (.setForeground Color/BLACK)
                 (.setOpaque true)))
             (when hasFocus
-              (if (= row @active-row)
-                (.setBorder f (LineBorder. Color/BLACK 2))
-                (.setBorder f (LineBorder. Color/YELLOW 2)))
+              (.setBorder f (LineBorder. Color/RED 2))
+              #_(if (= row @active-row)
+                  (.setBorder f (LineBorder. Color/BLACK 2))
+                  (.setBorder f (LineBorder. Color/YELLOW 2)))
               (set-clip-fn (get-clip state col)))
             f))))))
 
@@ -95,7 +110,11 @@
         table (doto (build-table state set-clip-fn)
                 (.setModel model)
                 (.setTableHeader nil)
-                (.addFocusListener focus-listener))]
+                (.addFocusListener focus-listener)
+                (.setCellSelectionEnabled true)
+                (.setRowSelectionAllowed true)
+                (.setSelectionBackground Color/WHITE)
+                (.setSelectionForeground Color/BLACK))]
     (utils/add-key-action
      table "control E" "edit-action"
      (let [r (.getSelectedRow table)
@@ -104,6 +123,7 @@
        (utils/show-text-input-dialog
         (.getTopLevelAncestor (.getSource e)) "Edit" val
         #(.setValueAt (.getModel table) % r c))))
+    
     (sequencer/register-callback sequencer/clip-made-active :refresh-tracker
                                  (fn [_]
                                    (.fireTableStructureChanged model)))

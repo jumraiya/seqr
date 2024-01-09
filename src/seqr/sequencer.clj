@@ -193,6 +193,10 @@
 (defn reset-play-window []
   (send state dissoc :start-counter :end-counter))
 
+(defn get-play-window []
+  (when (contains? @state :start-counter)
+   [(:start-counter @state) (:end-counter @state)]))
+
 (defn get-active-clip-names []
   (into #{}
         (comp
@@ -290,20 +294,20 @@
             ))))))
 
 (defn start []
-  (vreset! counter 0)
+  (vreset! counter (or (:start-counter @state) 0))
   (send state assoc :running? true :terminate? false)
   (await-for 100 state)
   (when (or (nil? counter-thread)
             (= (.getState ^Thread counter-thread)
                Thread$State/TERMINATED))
     (alter-var-root (var counter-thread) (constantly (mk-counter-thread))))
-  (let [resume #(condp = (.getState ^Thread %) 
-                 Thread$State/NEW (.start ^Thread %)
-                 Thread$State/RUNNABLE (println (str (.getName %) " already running"))
-                 Thread$State/WAITING (LockSupport/unpark %)
-                 Thread$State/TIMED_WAITING (println (str (.getName %) " is timed waiting"))
-                 Thread$State/BLOCKED (println (str (.getName %) " is blocked"))
-                 Thread$State/TERMINATED :terminated)]
+  (let [resume #(condp = (.getState ^Thread %)
+                  Thread$State/NEW (.start ^Thread %)
+                  Thread$State/RUNNABLE (println (str (.getName %) " already running"))
+                  Thread$State/WAITING (LockSupport/unpark %)
+                  Thread$State/TIMED_WAITING (println (str (.getName %) " is timed waiting"))
+                  Thread$State/BLOCKED (println (str (.getName %) " is blocked"))
+                  Thread$State/TERMINATED :terminated)]
     (resume counter-thread)
     (doseq [[idx {t :thread}] @sender-threads]
       (when t

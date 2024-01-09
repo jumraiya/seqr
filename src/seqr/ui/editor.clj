@@ -165,11 +165,38 @@
     (when (seq (get-in @cur-clip [:data b n]))
       point)))
 
+
+ (defn- move-tracker-selection [state table dir]
+   (let [row (.getSelectedRow table)
+         col (.getSelectedColumn table)]
+     (if (= col 0)
+       (.changeSelection
+        table
+        (case dir
+          :up (max 0 (dec row))
+          :down (min (dec (.getRowCount (.getModel table))) (inc row)))
+        col false false)
+       (loop [r (case dir :up (dec row) :down (inc row))]
+         (if (<= r 0)
+           (.changeSelection table 0 col false false)
+           (if
+            (>= r (.getRowCount (.getModel table)))
+             (.changeSelection table (dec (.getRowCount (.getModel table))) col false false)
+             (if
+              (int?
+               (when-let [{:keys [div point] :as cl}
+                          (get (:clips @state) (dec col))]
+                 (when-let [seq-div (sequencer/get-div)]
+                   (helper/get-wrapped-point (inc r) div (dec point) seq-div))))
+               (.changeSelection table r col false false)
+               (recur (case dir :up (dec r) :down (inc r))))))))))
+
+
 (defn- add-keybindings [ui-state editor text table tracker config-table]
   (utils/add-key-action config-table "control DOWN" "focus-editor"
                         (.requestFocusInWindow (.getView (.getViewport editor))))
 
-  (doseq [c [text table]]
+  (doseq [c [text table tracker]]
     (utils/add-key-action c "control UP" "focus-config"
                           (.requestFocusInWindow config-table)))
 
@@ -234,7 +261,23 @@
   (utils/add-key-action tracker "shift control UP" "shift-left"
                         (when-let [point (find-tracker-point tracker)]
                           (shift-clip point ui-state :left)
-                          (.fireTableDataChanged (.getModel tracker)))))
+                          (.fireTableDataChanged (.getModel tracker))))
+
+  (utils/add-key-action tracker "UP" "move-up"
+                        (move-tracker-selection ui-state tracker :up))
+
+  (utils/add-key-action tracker "DOWN" "move-down"
+                        (move-tracker-selection ui-state tracker :down))
+
+  (utils/add-key-action tracker "control SPACE" "set-play-window"
+    (let [rows (.getSelectedRows tracker)]
+      (sequencer/set-play-window
+       (inc (apply min rows)) (inc (apply max rows)))
+      (.fireTableDataChanged (.getModel tracker))))
+
+  (utils/add-key-action tracker "shift SPACE" "reset-play-window"
+    (sequencer/reset-play-window)
+    (.fireTableDataChanged (.getModel tracker))))
 
 (defn- mk-table-editor []
   (proxy [JTable] []
