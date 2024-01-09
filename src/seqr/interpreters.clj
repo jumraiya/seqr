@@ -54,7 +54,7 @@
   ([msg]
    (midi->note msg {}))
   ([msg clip]
-   (let [gated? (get-in clip [:args :gated])
+   (let [gated? (contains? (:args clip) "gate")
          cmd (.getCommand msg)
          ret (if (or (= cmd ShortMessage/NOTE_ON)
                      (and gated?

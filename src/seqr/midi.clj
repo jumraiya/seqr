@@ -4,14 +4,25 @@
 
 (defonce midi-buffer (agent []))
 
+(defonce msg-listeners (atom {}))
+
 (defonce is-recording? (atom false))
+
+(defn register-listener [event key f]
+  (swap! msg-listeners assoc-in [event key] f))
 
 (def record-message
   (proxy [Receiver] []
     (close []
       )
     (send [^MidiMessage m ^Long time-stamp]
-      (clojure.core/send midi-buffer conj [time-stamp m]))))
+      (clojure.core/send midi-buffer conj [time-stamp m])
+      (future
+        (try
+          (doseq [l (vals (:recv-msg @msg-listeners))]
+            (l m))
+          (catch Exception e
+            (prn e)))))))
 
 
 (defn list-devices []

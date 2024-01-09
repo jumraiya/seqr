@@ -4,8 +4,11 @@
    [seqr.ui.editor :as editor]
    [seqr.clip :as clip]
    [seqr.helper :as helper]
+   [seqr.interpreters :as in]
+   [seqr.serializers :as se]
    [seqr.midi :as midi]
-   [seqr.sequencer :as sequencer])
+   [seqr.sequencer :as sequencer]
+   [seqr.connections :as conn])
   (:import
    (javax.swing JButton JLabel JPanel JTextField JComboBox DefaultComboBoxModel)
    (java.awt FlowLayout)
@@ -53,6 +56,14 @@
     (getElementAt [idx]
       (nth (midi/get-available-devices) idx))))
 
+(defn- play-midi [m]
+  (let [cl (editor/get-cur-clip)
+        bytes (->> m
+                   (in/interpret-midi cl)
+                   (in/interpret cl)
+                   (se/serialize cl))]
+    (conn/send! (:dest cl) bytes)))
+
 (defn mk-bar []
   (let [play-btn (JButton. "Start")
         bpm-label (JLabel. "BPM:")
@@ -65,22 +76,22 @@
         toggle-midi (JButton. "Record MIDI")
         mk-clip (JButton. "Make Clip from MIDI")]
     (utils/add-action-listener play-btn
-                               (try
-                                 (sequencer/start|pause)
-                                 (if (sequencer/is-running?)
-                                   (do
-                                     (resume-listener)
-                                     (.setText play-btn "Pause"))
-                                   (.setText play-btn "Start"))
-                                 (catch Exception e)))
+      (try
+        (sequencer/start|pause)
+        (if (sequencer/is-running?)
+          (do
+            (resume-listener)
+            (.setText play-btn "Pause"))
+          (.setText play-btn "Start"))
+        (catch Exception e)))
     (utils/add-action-listener toggle-midi
-                               (try
-                                 (let [recording? (midi/toggle-recording
-                                                   (.getSelectedItem @midi-input-list))]
-                                   (if recording?
-                                     (.setText toggle-midi "Stop Recording")
-                                     (.setText toggle-midi "Record MIDI")))
-                                 (catch Exception e)))
+      (try
+        (let [recording? (midi/toggle-recording
+                          (.getSelectedItem @midi-input-list))]
+          (if recording?
+            (.setText toggle-midi "Stop Recording")
+            (.setText toggle-midi "Record MIDI")))
+        (catch Exception e)))
     (utils/add-action-listener reload-midi-devices-btn
       (.repaint midi-inputs))
     (utils/add-action-listener mk-clip
@@ -100,3 +111,5 @@
       (.add reload-midi-devices-btn)
       (.add toggle-midi)
       (.add mk-clip))))
+
+(midi/register-listener :recv-msg :play-midi play-midi)

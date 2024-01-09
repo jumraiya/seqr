@@ -282,11 +282,14 @@
                                  (let [[bar note] (get-pos p div)
                                        has-action? (-> (get-in clip [bar note]) empty? not)
                                        rest-val (- p (max last-action (dec (get-point bar 1 div))) 1)
-                                       rest-str (if (and has-action?
-                                                         (> rest-val 0)
-                                                         (not (= 1 note)))
-                                                  (str ":" rest-val " ")
-                                                  "")
+                                       rest-str (cond
+                                                  (and has-action?
+                                                       (> rest-val 0)
+                                                       (not (= 1 note))) (str ":" rest-val " ")
+                                                  (and (= p point)
+                                                       (> (dec p) last-action)
+                                                       (not (= 1 note))) (str ":" (- p last-action 1) " ")
+                                                  :else "")
                                        s (mk-action-str (get-in clip [bar note] []) clip)
                                        [actions lens] (if has-action?
                                                         [(assoc actions p s)

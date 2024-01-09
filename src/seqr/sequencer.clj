@@ -83,37 +83,37 @@
                 true))
             (println "cannot fit actions")))))))
 
- (defn- do-send [num local-counter counter buf]
-   (.set local-counter @counter)
-   (doseq [[slot div size dest clip] (get-in @sender-threads [num :clips])]
-     (let [rel-div (/ (:div @state) div)
-           c (dec (.get local-counter))]
-       (when (and (contains? (:active-slots @state) slot)
-                  (= 0 (mod c rel-div))
-                  (>= c 0))
-         (loop [offset 0]
-           (let [point (/ c rel-div)
-                 point (if (>= point size)
-                         (mod point size)
-                         point)
-                 ;; len (-> (short 0)
-                 ;;         (bit-or (aget buffer slot point (inc offset)))
-                 ;;         (bit-shift-left 8)
-                 ;;         (bit-or (aget buffer slot point offset)))
-                 len (-> buf
-                         (.get)
-                         (.put 0 (aget buffer slot point offset))
-                         (.put 1 (aget buffer slot point (inc offset)))
-                         (.getShort 0))]
-             (when (> len 0)
-               (conn/send! dest (aget buffer slot point)
-                           (int (+ offset 2)) (int len))
-               (when (contains? (:dynamic clip) (inc point))
-                   (future
-                     (serialize-actions slot (inc point) clip))))
-             (when (and (< (+ offset len 3) MAX-ACTION-LEN)
-                        (> len 0))
-               (recur (+ offset len 3)))))))))
+(defn- do-send [num local-counter counter buf]
+  (.set local-counter @counter)
+  (doseq [[slot div size dest clip] (get-in @sender-threads [num :clips])]
+    (let [rel-div (/ (:div @state) div)
+          c (dec (.get local-counter))]
+      (when (and (contains? (:active-slots @state) slot)
+                 (= 0 (mod c rel-div))
+                 (>= c 0))
+        (loop [offset 0]
+          (let [point (/ c rel-div)
+                point (if (>= point size)
+                        (mod point size)
+                        point)
+                ;; len (-> (short 0)
+                ;;         (bit-or (aget buffer slot point (inc offset)))
+                ;;         (bit-shift-left 8)
+                ;;         (bit-or (aget buffer slot point offset)))
+                len (-> buf
+                        (.get)
+                        (.put 0 (aget buffer slot point offset))
+                        (.put 1 (aget buffer slot point (inc offset)))
+                        (.getShort 0))]
+            (when (> len 0)
+              (conn/send! dest (aget buffer slot point)
+                          (int (+ offset 2)) (int len))
+              (when (contains? (:dynamic clip) (inc point))
+                (future
+                  (serialize-actions slot (inc point) clip))))
+            (when (and (< (+ offset len 3) MAX-ACTION-LEN)
+                       (> len 0))
+              (recur (+ offset len 3)))))))))
 
 
 (defn sender-thread [num counter]
@@ -186,6 +186,12 @@
            0
            (filter #(contains? (:active-slots state) (first %))
                    (mapcat :clips (vals @sender-threads))))))
+
+(defn set-play-window [start end]
+  (send state assoc :start-counter start :end-counter end))
+
+(defn reset-play-window []
+  (send state dissoc :start-counter :end-counter))
 
 (defn get-active-clip-names []
   (into #{}
@@ -272,9 +278,9 @@
         (try
           (if (:running? @state)
             (do
-              (if (< @counter (:size @state))
+              (if (< @counter (or (:end-counter @state) (:size @state)))
                 (vswap! counter inc)
-                (vreset! counter 1))
+                (vreset! counter (or (:start-counter @state) 1)))
               (Thread/sleep (:period @state)))
             (do
               (println "Stopping sequencer")
