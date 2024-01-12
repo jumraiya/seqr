@@ -14,7 +14,7 @@
 
 (def MAX-CLIP-ACTIONS 256)
 
-(def MAX-ACTION-LEN 256)
+(def MAX-ACTION-LEN 1024)
 
 (defonce buffer
   (make-array Byte/TYPE MAX-CLIPS MAX-CLIP-ACTIONS 2 MAX-ACTION-LEN))
@@ -66,7 +66,7 @@
   (doseq [i (range MAX-CLIP-ACTIONS)]
     (Arrays/fill (aget buffer slot i 0) (byte 0))
     (Arrays/fill (aget buffer slot i 1) (byte 0))))
-#trace
+
 (defn- serialize-actions [slot point clip]
   (let [[b n] (helper/get-pos point (:div clip))
         variant (cond (= 0 (aget buffer slot (dec point) 0 (dec MAX-ACTION-LEN))) 0
@@ -155,21 +155,18 @@
         (catch Exception e
           (prn e)
           (println (str "Terminating " (.getName this))))))))
-#trace
-(defn- t []
-  (try
-    (doseq [[slot div size _ clip] (mapcat :clips (vals @sender-threads))]
-      (when (contains? (:active-slots @state) slot)
-        (doseq [p (:dynamic clip)]
-          (serialize-actions slot p clip))))
-    (catch Exception _)))
 
 (defn- mk-dynamic-actions-thread []
   (proxy [Thread] ["dynamic-actions-thread"]
     (run []
       (while (not (:terminate? @state))
         (if (:running? @state)
-          (t)
+          (try
+            (doseq [[slot div size _ clip] (mapcat :clips (vals @sender-threads))]
+              (when (contains? (:active-slots @state) slot)
+                (doseq [p (:dynamic clip)]
+                  (serialize-actions slot p clip))))
+            (catch Exception _))
           (LockSupport/park this))))))
 
 (defn- assign-sender-clip [slot {:keys [div point dest] :as clip}]

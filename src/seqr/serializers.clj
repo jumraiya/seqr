@@ -11,8 +11,10 @@
   (let [f (or (get @serializers serializer)
               (conn/get-serializer dest))]
     (if f
+      (if action
         (f action)
-        (throw (Exception. "No serializer found")))))
+        (byte-array []))
+      (throw (Exception. "No serializer found")))))
 
 (def sc-new-synth
   (osc/builder "/s_new ?synth ?node-id:-1 ?add-action:0 ?target:0 ...?args"))

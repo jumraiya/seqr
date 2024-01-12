@@ -10,17 +10,18 @@
   (swap! interpreters assoc key f))
 
 (defn interpret [{:keys [args interpreter] :as cl} {:keys [action] :as ac} & [b n]]
-  (let [f (or (get @interpreters interpreter) identity)]
-    (f
-     (-> (merge args ac)
-         (dissoc :action-str)
-         (update-vals #(if (and (string? %)
-                                (.startsWith ^String % "$"))
-                         (get cl %)
-                         %))
-         (update-vals #(if (fn? %)
-                         (% b n)
-                         %))))))
+  (let [f (or (get @interpreters interpreter) identity)
+        data (-> (merge args ac)
+                 (dissoc :action-str)
+                 (update-vals #(if (and (string? %)
+                                        (.startsWith ^String % "$"))
+                                 (get cl %)
+                                 %))
+                 (update-vals #(if (fn? %)
+                                 (% b n)
+                                 %)))]
+    (when (:action data)
+     (f data))))
 
 (defn register-midi-interpreter [key f]
   (swap! midi-interpreters assoc key f))
