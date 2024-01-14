@@ -445,3 +445,6 @@
              (update (first from) dissoc (second from)))
          cl)))
    clip (range (dec point) (dec at) -1)))
+
+(defn parse-actions [action-str clip]
+  (get-in (parse-clip action-str clip) [1 1]))

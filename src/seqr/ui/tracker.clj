@@ -105,6 +105,19 @@
               (set-clip-fn (get-clip state col)))
             f))))))
 
+(defn- open-editor [state table e]
+  (let [r (.getSelectedRow table)
+        c (.getSelectedColumn table)
+        val (.getValueAt (.getModel table) r c)
+        clip (get-clip state c)]
+    (when (and (:div clip) (:point clip))
+      (let [seq-div (or (sequencer/get-div) (:div clip))]
+        (utils/show-action-editor
+         (.getTopLevelAncestor (.getSource e))
+         clip
+         (helper/get-wrapped-point (inc r) (:div clip) (dec (:point clip)) seq-div)
+         #(.setValueAt (.getModel table) % r c))))))
+
 (defn build [state set-clip-fn save-clip-fn]
   (let [model (mk-model state save-clip-fn)
         table (doto (build-table state set-clip-fn)
@@ -116,13 +129,8 @@
                 (.setSelectionBackground Color/WHITE)
                 (.setSelectionForeground Color/BLACK))]
     (utils/add-key-action
-     table "control E" "edit-action"
-     (let [r (.getSelectedRow table)
-           c (.getSelectedColumn table)
-           val (.getValueAt (.getModel table) r c)]
-       (utils/show-text-input-dialog
-        (.getTopLevelAncestor (.getSource e)) "Edit" val
-        #(.setValueAt (.getModel table) % r c))))
+        table "control E" "edit-action"
+        (open-editor state table e))
     
     (sequencer/register-callback sequencer/clip-made-active :refresh-tracker
                                  (fn [_]

@@ -113,8 +113,7 @@
           (.substring (:text @cur-clip) start end))))
     (setValueAt [val row col]
       (when-let [div (-> @cur-clip :data :div)]
-        (let [actions (get-in (clip/parse-clip val (:data @cur-clip))
-                              [1 1])
+        (let [actions (clip/parse-actions val (:data @cur-clip))
               new-clip (assoc-in (:data @cur-clip) [(inc row) (inc col)] actions)
               at-point (helper/get-point (inc row) (inc col) div)]
           (save-clip ui-state
@@ -191,7 +190,6 @@
                (.changeSelection table r col false false)
                (recur (case dir :up (dec r) :down (inc r))))))))))
 
-
 (defn- add-keybindings [ui-state editor text table tracker config-table]
   (utils/add-key-action config-table "control DOWN" "focus-editor"
                         (.requestFocusInWindow (.getView (.getViewport editor))))
@@ -200,10 +198,32 @@
     (utils/add-key-action c "control UP" "focus-config"
                           (.requestFocusInWindow config-table)))
 
+  (utils/add-key-action
+      table "control E" "edit-action"
+    (let [r (.getSelectedRow table)
+          c (.getSelectedColumn table)
+          val (.getValueAt (.getModel table) r c)]
+      (utils/show-action-editor
+       (.getTopLevelAncestor (.getSource e))
+       (:data @cur-clip)
+       (find-table-point table)
+       #(.setValueAt (.getModel table) % r c))))
+
+  (utils/add-key-action
+      text "control E" "edit-action"
+    (when-let [point (find-text-point text)]
+      (let [pos (helper/get-pos point (-> @cur-clip :data :div))]
+          (utils/show-action-editor
+           (.getTopLevelAncestor (.getSource e))
+           (:data @cur-clip)
+           point
+           #(let [actions (clip/parse-actions % (:data @cur-clip))]
+              (save-clip ui-state (assoc-in (:data @cur-clip) pos actions)))))))
+  
   (utils/add-key-action text "control T" "toggle-table-mode"
-                        (.setViewportView editor table)
-                        (.requestFocusInWindow table)
-                        (send ui-state assoc ::cur-view :table))
+    (.setViewportView editor table)
+    (.requestFocusInWindow table)
+    (send ui-state assoc ::cur-view :table))
 
   (utils/add-key-action text "control L" "toggle-tracker-mode"
                         (.setViewportView editor tracker)
@@ -306,13 +326,6 @@
                        (.setTableHeader nil)
                        (.addFocusListener focus-listener)
                        (.setFont (Font. "Monospaced" Font/PLAIN 14)))
-        _ (utils/add-key-action
-           table-editor "control E" "edit-action"
-           (let [r (.getSelectedRow table-editor)
-                 c (.getSelectedColumn table-editor)
-                 val (.getValueAt (.getModel table-editor) r c)]
-             (utils/show-text-input-dialog
-              (.getTopLevelAncestor (.getSource e)) "Edit" val #(.setValueAt (.getModel table-editor) % r c))))
         _ (reset! clip-table-editor table-editor)
         tracker (tracker/build state set-clip save-clip)
         _ (reset! tracker-view tracker)
