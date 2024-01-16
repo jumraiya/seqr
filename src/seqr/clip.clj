@@ -222,14 +222,14 @@
       t-eof clip)))
 
 #_(defmacro ^:private mk-dynamic-action [xform]
-  (let [bar-sym (gensym)
-        note-sym (gensym)
-        body (replace-syms {'bar bar-sym 'note note-sym} xform)]
-    `(fn [~bar-sym ~note-sym]
-       (replace-syms
-        ~body))))
+    (let [bar-sym (gensym)
+          note-sym (gensym)
+          body (replace-syms {'bar bar-sym 'note note-sym} xform)]
+      `(fn [~bar-sym ~note-sym]
+         (replace-syms
+          ~body))))
 
- (defn- add-action [token text {:keys [point div args parse-until] :or {args {}} :as clip} group?]
+(defn- add-action [token text {:keys [point div args parse-until] :or {args {}} :as clip} group?]
   (let [pos (get-pos point div)
         after-group? (= t-bracket-close (:type token))
         action-var-str (:action-var-str token)
@@ -260,7 +260,7 @@
       [clip text token]
       (condp = (:type token)
         t-word (add-action token text clip group?)
-        t-action-var (add-action-var token text clip)
+        t-action-var (add-action-var token text clip group?)
         t-paren-open (add-action token text clip group?)
         t-rest (add-rest token text clip)
         t-bracket-open (if group?
@@ -270,10 +270,10 @@
         t-brace-open (add-params token text clip group? after-group?)
         t-eof clip))))
 
-(defn- add-action-var [token text clip]
+(defn- add-action-var [token text clip & [group?]]
   (let [ac (get clip (:val token))
         [n-token text] (next-token (str ac " " text))
-        group? (= (:type n-token) t-bracket-open)]
+        group? (or group? (= (:type n-token) t-bracket-open))]
     (add-action (assoc n-token :action-var-str (:val token)) text clip group?)))
 
 (defn as-str [{:keys [div args point] :as clip} & {:keys [exclude-preamble? no-args-diff]}]
@@ -329,7 +329,7 @@
                              (clojure.string/replace "\"" ""))
                          "\n\n")]
     (when-not exclude-preamble?
-        (.append text options-str))
+      (.append text options-str))
     (loop [positions {} offset (if exclude-preamble? 0
                                    (.length options-str)) p 1]
       (let [[bar note] (get-pos p div)
@@ -383,7 +383,7 @@
         outs (into {} (map (fn [[k v]] [k (get-fn v)]) (:outs clip)))
         eval-fn (get-fn (or (:eval clip) (with-meta identity {:ns "clojure.core" :name "identity"})))
         eval-fn (with-meta (partial wrap-eval eval-fn) (meta eval-fn))]
-    ;(assoc clip :eval eval-fn :outs outs)
+                                        ;(assoc clip :eval eval-fn :outs outs)
     clip))
 
 (defmacro clip [actions & {:keys [div args outs eval group] :or {div 4 args {} group "default"} :as clip}]

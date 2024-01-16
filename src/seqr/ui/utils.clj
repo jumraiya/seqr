@@ -87,26 +87,26 @@
                (.addTab "Serialized" pane-3))
         dialog (mk-dialog source "Edit Action")]
     (add-change-listener
-     pane
-     (cond
-       (= 1 (.getSelectedIndex pane))
-       (let [actions (clip/parse-actions (.getText pane-1) clip)]
-           (.setText pane-2 (with-out-str
-                              (pprint (mapv #(inter/interpret clip %) actions)))))
-       (= 2 (.getSelectedIndex pane))
-       (let [actions (clip/parse-actions (.getText pane-1) clip)]
-           (.setText pane-3 (with-out-str
-                              (pprint (mapv #(->> %
-                                                  (inter/interpret clip)
-                                                  (ser/serialize clip)
-                                                  byte-array
-                                                  (String.))
-                                            actions)))))
-       :else nil))
+        pane
+        (cond
+          (= 1 (.getSelectedIndex pane))
+          (let [actions (clip/parse-actions (.getText pane-1) clip)]
+            (.setText pane-2 (with-out-str
+                               (pprint (mapv #(inter/interpret clip %) actions)))))
+          (= 2 (.getSelectedIndex pane))
+          (let [actions (clip/parse-actions (.getText pane-1) clip)]
+            (.setText pane-3 (with-out-str
+                               (pprint (mapv #(->> %
+                                                   (inter/interpret clip)
+                                                   (ser/serialize clip)
+                                                   byte-array
+                                                   (String.))
+                                             actions)))))
+          :else nil))
     (doseq [c [pane-1 pane-2]]
-        (add-key-action c "control S" "commit"
-          (callback (.getText pane-1))
-          (.dispose dialog)))
+      (add-key-action c "control S" "commit"
+        (callback (.getText pane-1))
+        (.dispose dialog)))
     (doto dialog
       (.add pane)
       (.setVisible true))))
