@@ -90,39 +90,68 @@
 (defn is-action-var? [v]
   (and (string? v) (.startsWith ^String v "$")))
 
-(defn mk-action-str [actions {:keys [args]}]
-  (if-let [action-var-str (-> actions first :action-var-str)]
-    action-var-str
-    (let [multi-action? (> (count actions) 1)
-          [common-params]
-          (if multi-action?
-            (diff
-             (reduce #(nth (diff (dissoc %1 :action :action-str)
-                                 (dissoc %2 :action :action-str))
-                           2) actions)
-             args))
-          action-str (->> actions
-                          (map
-                           #(let [a-params (-> (dissoc % :action :action-str)
-                                               (diff common-params)
-                                               first
-                                               (diff args)
-                                               first)]
-                              (str (or (:action-str %) (:action %))
-                                   (if (not (empty? a-params))
-                                     (str " " (-> a-params str
-                                                  (clojure.string/replace "\"" "")
-                                                  (clojure.string/replace "," ""))
-                                          " "))
-                                   " ")))
-                          join)]
-      (.trim
-       (if multi-action?
-         (str "[" (.trim action-str) "]"
-              (if (not (empty? common-params))
-                (str " " (-> common-params str (clojure.string/replace "\"" "")
-                             (clojure.string/replace "," "")))))
-         action-str)))))
+(defn- strs-eq? [str1 str2]
+  (loop [data1 (next-token str1) data2 (next-token str2)]
+    (let [[tok1 text1] data1
+          [tok2 text2] data2]
+      (if (and (= (:type tok1) t-eof)
+               (= (:type tok2) t-eof))
+        true
+       (if (and (= (:type tok1) (:type tok2))
+                (= (:val tok1) (:val tok2)))
+         (recur (next-token text1) (next-token text2))
+         false)))))
+
+(defn- find-matching-action-var [action-vars action-str]
+  (some (fn [[v data]]
+          (when (strs-eq? data action-str)
+            v))
+        action-vars))
+
+(defn mk-action-str [actions {:keys [args] :as clip}]
+  (let [action-vars (into {}
+                          (comp
+                           (filter #(string? (key %)))
+                           (filter
+                            (fn [[k v]]
+                              (.startsWith ^String k "$"))))
+                          clip)]
+    (if-let [action-var-str
+             (find-matching-action-var
+              action-vars
+              (str "[" (reduce #(str %1 " " (:action-str %2)) "" actions) "]"))]
+      action-var-str
+      (let [multi-action? (> (count actions) 1)
+            [common-params]
+            (if multi-action?
+              (diff
+               (reduce #(nth (diff (dissoc %1 :action :action-str)
+                                   (dissoc %2 :action :action-str))
+                             2) actions)
+               args))
+            action-str (->> actions
+                            (map
+                             #(let [a-params (-> (dissoc % :action :action-str)
+                                                 (diff common-params)
+                                                 first
+                                                 (diff args)
+                                                 first)]
+                                (str (or (find-matching-action-var action-vars (:action-str %))
+                                         (:action-str %) (:action %))
+                                     (if (not (empty? a-params))
+                                       (str " " (-> a-params str
+                                                    (clojure.string/replace "\"" "")
+                                                    (clojure.string/replace "," ""))
+                                            " "))
+                                     " ")))
+                            join)]
+        (.trim
+         (if multi-action?
+           (str "[" (.trim action-str) "]"
+                (if (not (empty? common-params))
+                  (str " " (-> common-params str (clojure.string/replace "\"" "")
+                               (clojure.string/replace "," "")))))
+           action-str))))))
 
 (defn- get-after-sexp [text]
   "Get the text after a sexp, this allows the parsing to continue after we encounter a clj expression"
@@ -274,7 +303,8 @@
   (let [ac (get clip (:val token))
         [n-token text] (next-token (str ac " " text))
         group? (or group? (= (:type n-token) t-bracket-open))]
-    (add-action (assoc n-token :action-var-str (:val token)) text clip group?)))
+    (add-action n-token #_(assoc n-token :action-var-str (:val token))
+                text clip group?)))
 
 (defn as-str [{:keys [div args point] :as clip} & {:keys [exclude-preamble? no-args-diff]}]
   (let [text (StringBuilder.)
