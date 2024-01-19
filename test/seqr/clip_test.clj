@@ -1,6 +1,8 @@
 (ns seqr.test.clip-test
   (:require [clojure.test :refer :all]
-            [seqr.clip :refer :all]))
+            [seqr.clip :refer :all]
+            [seqr.interpreters :as interp]
+            [seqr.serializers :as ser]))
 
 (deftest test-parse-clip
   (testing "Testing action parsing"
@@ -41,8 +43,24 @@
     (let [cl (parse-clip "a (nth [1 2 3] (rand-int 3))")
           action (first (get-in cl [1 2]))]
       (is (= (:action-str action) "(nth [1 2 3] (rand-int 3))"))
-      (is (contains? #{1 2 3} (eval (:action action))))))
+      (is (contains? #{1 2 3} (:action (interp/interpret cl action))))))
   (testing "Testing serialization"
-    (let [cl (parse-clip "{:eval seqr.sc/note :args {dur 1}} a b {dur 2} c :1 d")
+    (let [cl (parse-clip "{:args {dur 1}} a b {dur 2} c :1 d")
           [action-positions text] (as-str cl)]
-      (is (= (clojure.string/trim text) "{:args {dur 1}\n :group default\n :div 4\n :outs {}\n :eval seqr.sc/note}\n\na b {dur 2} c   |\n\nd")))))
+      (is (= (clojure.string/trim text) "{:div 4\n :args {dur 1}}\n\na b {dur 2} c   |\n\nd")))))
+
+(deftest test-dynamic-args
+  (let [text "{:args {x (rand-int 4)}} a"
+        cl (parse-clip text)
+        ac (interp/interpret cl (get-in cl [1 1 0]))]
+    (is (int? (get ac "x")))
+    (is (= (.trim (second (as-str cl))) text))))
+
+(deftest test-action-vars
+  (testing "simple action"
+    (is (= "a" (-> "{$a a} $a" parse-clip (get-in [1 1 0 :action])))))
+
+  (testing "fn action"
+    (let [cl (parse-clip "{$a '(choose [1 2])'} 1 $a")
+          ac (interp/interpret cl (get-in cl [1 2 0]))]
+      (is (contains? #{1 2} (:action (interp/interpret cl (get-in cl [1 2 0]))))))))

@@ -108,6 +108,21 @@
             v))
         action-vars))
 
+(defn- mk-params-str [params]
+  (-> (clojure.walk/postwalk
+           #(cond
+              (and (string? %)
+                   (clojure.string/includes? % " "))
+              (str "'" % "'")
+              (and (map? %) (contains? % :param-str))
+              (:param-str %)
+              :else %)
+           params)
+      str
+      (clojure.string/replace "," "\n")
+      (clojure.string/replace "\"" "")))
+
+
 (defn mk-action-str [actions {:keys [args] :as clip}]
   (let [action-vars (into {}
                           (comp
@@ -135,22 +150,28 @@
                                                  (diff common-params)
                                                  first
                                                  (diff args)
-                                                 first)]
-                                (str (or (find-matching-action-var action-vars (:action-str %))
-                                         (:action-str %) (:action %))
-                                     (if (not (empty? a-params))
-                                       (str " " (-> a-params str
-                                                    (clojure.string/replace "\"" "")
-                                                    (clojure.string/replace "," ""))
-                                            " "))
-                                     " ")))
+                                                 first)
+                                    params-str (if (not (empty? a-params))
+                                                 (str " " (mk-params-str a-params) " "))]
+                                (if-let [ret (find-matching-action-var
+                                              action-vars (clojure.string/replace
+                                                           (str (:action-str %)
+                                                                params-str)
+                                                           "'" ""))]
+                                  ret
+                                  (str
+                                   (or
+                                    (find-matching-action-var
+                                     action-vars (:action-str %))
+                                    (:action-str %) (:action %))
+                                   params-str
+                                   " "))))
                             join)]
         (.trim
          (if multi-action?
            (str "[" (.trim action-str) "]"
                 (if (not (empty? common-params))
-                  (str " " (-> common-params str (clojure.string/replace "\"" "")
-                               (clojure.string/replace "," "")))))
+                  (str " " (mk-params-str common-params))))
            action-str))))))
 
 (defn- get-after-sexp [text]
@@ -213,11 +234,17 @@
 (defn- add-map-val [data text key & [dynamic?]]
   (let [[token text] (next-token text)]
     (condp = (:type token)
-      t-single-quote (let [[v text] (read-quoted-value text)]
-                       (add-map-key (assoc data key v) text dynamic?))
+      t-single-quote (let [[v text] (read-quoted-value text)
+                           [value] (if (and (string? key) (.startsWith key "$"))
+                                     [{"x" v}]
+                                     (add-map-key {} (str "x " v "}") false))]
+                       (add-map-key (assoc data key (get value "x")) text dynamic?))
       t-word (add-map-key (assoc data key (:val token)) text dynamic?)
       t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
-                     (add-map-key (assoc data key a-str) after true))
+                     (add-map-key (assoc data key
+                                         {:val (eval-clj (str "(fn [bar note]" a-str ")"))
+                                          :param-str a-str})
+                                  after true))
       t-brace-open (let [[sub text] (add-map-key {} text)]
                      (add-map-key (assoc data key sub) text dynamic?)))))
 
@@ -276,7 +303,10 @@
                                               :action-str (str action-str)}
                                         (when action-var-str
                                           {:action-var-str action-var-str}))))
-               dynamic? (update :dynamic conj point))
+               (or dynamic?
+                   (and is-action?
+                        (some #(when (and (map? %) (fn? (:val %))) true) (vals args))))
+               (update :dynamic conj point))
         [token text] (next-token text)
         token (if (and (not is-action?) action-var-str)
                 (assoc token :action-var-str action-var-str)
@@ -348,16 +378,7 @@
                                        (fn? v) (fn-to-str v)
                                        true v)]))
                               clip))
-        options-str (str (-> (clojure.walk/postwalk
-                              #(if (and (string? %)
-                                        (clojure.string/includes? % " "))
-                                 (str "'" % "'")
-                                 %)
-                              options)
-                             str
-                             (clojure.string/replace "," "\n")
-                             (clojure.string/replace "\"" ""))
-                         "\n\n")]
+        options-str (str (mk-params-str options) "\n\n")]
     (when-not exclude-preamble?
       (.append text options-str))
     (loop [positions {} offset (if exclude-preamble? 0

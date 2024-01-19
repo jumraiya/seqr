@@ -17,9 +17,8 @@
                                         (.startsWith ^String % "$"))
                                  (get cl %)
                                  %))
-                 (update-vals #(if (fn? %)
-                                 (% b n)
-                                 %)))]
+                 (update-vals #(if (map? %) (:val %) %))
+                 (update-vals #(if (fn? %) (% b n) %)))]
     (when (:action data)
      (f data))))
 
