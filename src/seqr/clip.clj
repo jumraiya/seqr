@@ -235,10 +235,10 @@
   (let [[token text] (next-token text)]
     (condp = (:type token)
       t-single-quote (let [[v text] (read-quoted-value text)
-                           [value] (if (and (string? key) (.startsWith key "$"))
-                                     [{"x" v}]
-                                     (add-map-key {} (str "x " v "}") false))]
-                       (add-map-key (assoc data key (get value "x")) text dynamic?))
+                           v (if (= t-paren-open (-> v next-token first :val))
+                                 (get (first (add-map-key {} (str "x " v "}") false)) "x")
+                                 v)]
+                       (add-map-key (assoc data key v) text dynamic?))
       t-word (add-map-key (assoc data key (:val token)) text dynamic?)
       t-paren-open (let [[a-str after] (get-after-sexp (str "( " text))]
                      (add-map-key (assoc data key
