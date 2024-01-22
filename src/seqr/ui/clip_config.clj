@@ -49,7 +49,7 @@
    (cond
      (re-matches #"\d+" val) (Integer/parseInt val)
      (re-matches #"[\d\.]+" val) (Float/parseFloat val)
-     (re-matches #" " (name prop)) (str "'" val "'")
+     (re-matches #" " val) (str "'" val "'")
      :else val)])
 
 (defn get-config-map [config-table]
@@ -76,16 +76,23 @@
                       (->> @clip-atom :data :args (sort-by key))))
         prop (nth args (+ (* row 8) (dec col)) nil)
         cur-clip (:data @clip-atom)
-        old-val (get-in cur-clip [:args (name prop)])
         [p v] (get-config-path+val prop val)
+        old-val (get-in cur-clip p)
         new-clip (assoc-in cur-clip p v)
         new-clip (if old-val
-                   (postwalk #(if (and (map? %)
-                                       (contains? % :action)
-                                       (= old-val (get % (name prop))))
-                                (dissoc % (name prop))
-                                %)
-                             new-clip)
+                   (postwalk
+                    #(cond
+                       (and (map? %)
+                            (contains? % :action)
+                            (= old-val (get % (name prop)))) (dissoc % (name prop))
+                       (and
+                        (coll? %)
+                        (some (fn [a] (when (and (map? a) (contains? a :action)) true)) %)
+                        (.startsWith (name prop) "$")
+                        (= (clip/mk-action-str % cur-clip) (name prop)))
+                       (clip/parse-actions prop new-clip)
+                       :else %)
+                    new-clip)
                    new-clip)]
     (when prop
       (save-fn ui-state new-clip))))
@@ -161,57 +168,64 @@
               (.setBorder f (LineBorder. Color/YELLOW 2)))            
             f))))))
 
+(defn- del-conf-val [table model clip-atom]
+  (let [r (.getSelectedRow table)
+        c (.getSelectedColumn table)
+        prop (if (odd? c)
+               (.getValueAt model r (dec c))
+               (.getValueAt model r c))]
+    (when (and prop r (> r 0))
+      (cond
+        (and (string? prop) (.startsWith ^String prop "$"))
+        (send clip-atom update :data dissoc prop)
+        :else (send clip-atom update-in [:data :args] dissoc prop))
+      (.fireTableStructureChanged model))))
+
 (defn build-table [clip-atom ui-state save-clip-fn ^JSplitPane container-pane destinations interpreters]
   (let [table (build-config-table clip-atom destinations interpreters)
         model (config-model clip-atom table ui-state save-clip-fn)
-        ;_ (watch clip-atom container-pane table)
-        ;_ (.addComponentListener container-pane (on-container-resize clip-atom table))
+                                        ;_ (watch clip-atom container-pane table)
+                                        ;_ (.addComponentListener container-pane (on-container-resize clip-atom table))
         table (doto table
                 (.setTableHeader nil)
                 (.setModel model)
                 (.setFont (Font. "Monospaced" Font/PLAIN FONT-SIZE))
                 (.setGridColor Color/WHITE))
         _ (utils/add-key-action
-           table "control D" "delete-prop"
-           (let [r (.getSelectedRow table)
-                 c (.getSelectedColumn table)
-                 prop (if (odd? c)
-                        (.getValueAt model r (dec c))
-                        (.getValueAt model r c))]
-             (when (and prop r (> r 0))
-               (cond
-                 (and (string? prop) (.startsWith ^String prop "$"))
-                 (send clip-atom update :data dissoc prop)
-                 :else (send clip-atom update-in [:data :args] dissoc prop))
-               (.fireTableStructureChanged model))))
+              table "control D" "delete-prop"
+              (del-conf-val table model clip-atom))
         _ (utils/add-key-action
               table "control E" "edit-prop"
-            (let [r (.getSelectedRow table)
-                  c (.getSelectedColumn table)
-                  val (.getValueAt model r c)]
-              (if (odd? c)
-                (when-let [prop (.getValueAt model r (dec c))]
-                  (utils/show-text-input-dialog
-                   (.getTopLevelAncestor (.getSource e)) "Edit" val #(.setValueAt model % r c)))
-                (when (> r 0)
-                  (utils/show-text-input-dialog
-                   (.getTopLevelAncestor (.getSource e)) "Edit" val
-                   (fn [new-prop]
-                     (let [prop-val (get-in @clip-atom [:data :args val])]
-                       (send clip-atom update-in [:data :args]
-                             #(do (-> % (dissoc val) (assoc new-prop prop-val))))
-                       (.fireTableDataChanged model))))))))
+              (let [r (.getSelectedRow table)
+                    c (.getSelectedColumn table)
+                    val (.getValueAt model r c)]
+                (if (odd? c)
+                  (when-let [prop (.getValueAt model r (dec c))]
+                    (utils/show-text-input-dialog
+                     (.getTopLevelAncestor (.getSource e)) "Edit" val #(.setValueAt model % r c)))
+                  (when (> r 0)
+                    (utils/show-text-input-dialog
+                     (.getTopLevelAncestor (.getSource e)) "Edit" val
+                     (fn [new-prop]
+                       (let [prop-val (get-in @clip-atom [:data :args val])]
+                         (send clip-atom update-in (if (.startsWith
+                                                        (.getValueAt model r c)
+                                                        "$")
+                                                     [:data]
+                                                     [:data :args])
+                               #(do (-> % (dissoc val) (assoc new-prop prop-val))))
+                         (.fireTableDataChanged model))))))))
         _ (utils/add-key-action
-           table "control A" "add-prop"
-            (utils/show-text-input-dialog
-             (.getTopLevelAncestor (.getSource e)) "Add arg" ""
-             (fn [new-prop]
-               (cond
-                 (and (string? new-prop) (.startsWith ^String new-prop "$"))
-                 (send clip-atom assoc-in [:data new-prop] "")
-                 :else
-                 (send clip-atom assoc-in [:data :args new-prop] ""))
-               (.fireTableStructureChanged model))))
+              table "control A" "add-prop"
+              (utils/show-text-input-dialog
+               (.getTopLevelAncestor (.getSource e)) "Add arg" ""
+               (fn [new-prop]
+                 (cond
+                   (and (string? new-prop) (.startsWith ^String new-prop "$"))
+                   (send clip-atom assoc-in [:data new-prop] "")
+                   :else
+                   (send clip-atom assoc-in [:data :args new-prop] ""))
+                 (.fireTableStructureChanged model))))
         scroll-pane (JScrollPane. table)
         _ (.addTableModelListener
            model

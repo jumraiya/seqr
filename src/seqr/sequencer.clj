@@ -12,7 +12,7 @@
 
 (def MAX-CLIPS 10)
 
-(def MAX-CLIP-ACTIONS 256)
+(def MAX-CLIP-ACTIONS 1024)
 
 (def MAX-ACTION-LEN 1024)
 
@@ -347,12 +347,13 @@
     (resume counter-thread)
     (resume dynamic-actions-thread)
     (doseq [[idx {t :thread}] @sender-threads]
-      (when t
-        (let [r (resume t)]
-          (when (= r :terminated)
+      (let [make-new? (or (nil? t)
+                          (when t
+                            (= (resume t) :terminated)))]
+        (when make-new?
             (send sender-threads
                   assoc-in [idx :thread] (doto (sender-thread idx counter)
-                                           (.start)))))))
+                                           (.start))))))
     (doseq [l (vals (get @callbacks sequencer-started))]
       (l))))
 

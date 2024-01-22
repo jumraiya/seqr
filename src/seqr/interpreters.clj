@@ -66,7 +66,8 @@
          ShortMessage/NOTE_ON (assoc ret "gate" 1)
          ShortMessage/NOTE_OFF (assoc ret "gate" 0)
          ret)
-       ret))))
+       (when (= cmd ShortMessage/NOTE_ON)
+           ret)))))
 
 (register-midi-interpreter "note" midi->note)
 

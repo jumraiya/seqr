@@ -62,7 +62,8 @@
                    (in/interpret-midi cl)
                    (in/interpret cl)
                    (se/serialize cl))]
-    (conn/send! (:dest cl) bytes)))
+    (when (> (alength bytes) 0)
+        (conn/send! (:dest cl) bytes))))
 
 (defn mk-bar []
   (let [play-btn (JButton. "Start")
