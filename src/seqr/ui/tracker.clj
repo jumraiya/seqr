@@ -29,7 +29,7 @@
         (when (seq actions)
           (clip/mk-action-str actions cl))))))
 
-(defn- mk-model [state save-clip-fn]
+(defn- mk-model [state save-clip-fn table]
   (proxy [AbstractTableModel] []
     (getColumnCount []
       (inc (count (sequencer/get-active-clip-names))))
@@ -53,7 +53,20 @@
       (int?
        (when-let [{:keys [div point] :as cl} (get (:clips @state) (dec col))]
          (when-let [seq-div (sequencer/get-div)]
-           (helper/get-wrapped-point (inc row) div (dec point) seq-div)))))))
+           (helper/get-wrapped-point (inc row) div (dec point) seq-div)))))
+    (fireTableStructureChanged []
+      (let [max-row (.getMaxSelectionIndex (.getSelectionModel table))
+            min-row (.getMinSelectionIndex (.getSelectionModel table))
+            selected-cols (.getSelectedColumns table)
+            [min-col max-col] (or
+                               (and (> (count selected-cols) 0)
+                                    [(apply min selected-cols)
+                                     (apply max selected-cols)])
+                               [-1 -1])]
+          (proxy-super fireTableStructureChanged)
+          (when (and (>= max-row 0) (>= min-row 0) (>= min-col 0) (>= max-col 0))
+            (.setRowSelectionInterval table min-row max-row)
+            (.setColumnSelectionInterval table  min-col max-col))))))
 
 
 (def focus-listener
@@ -119,8 +132,9 @@
          #(.setValueAt (.getModel table) % r c))))))
 
 (defn build [state set-clip-fn save-clip-fn]
-  (let [model (mk-model state save-clip-fn)
-        table (doto (build-table state set-clip-fn)
+  (let [table (build-table state set-clip-fn)
+        model (mk-model state save-clip-fn table)
+        table (doto table
                 (.setModel model)
                 (.setTableHeader nil)
                 (.addFocusListener focus-listener)

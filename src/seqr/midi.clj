@@ -2,6 +2,10 @@
   (:require [seqr.helper :refer [get-pos calc-period]])
   (:import [javax.sound.midi MidiSystem Receiver MidiMessage ShortMessage]))
 
+(def NOTE-ON ShortMessage/NOTE_ON)
+
+(def NOTE-OFF ShortMessage/NOTE_OFF)
+
 (defonce midi-buffer (agent []))
 
 (defonce msg-listeners (atom {}))
@@ -61,6 +65,7 @@
           (do
             (doseq [t (.getTransmitters device)]
               (.setReceiver t nil))
+            (.close device)
             (reset! is-recording? false)
             false)))
       (prn (str "Could not find device " device-name)))))
@@ -90,3 +95,9 @@
             (recur cur buf point m)
             m))
         m))))
+
+(defn get-last-message [type]
+  (some #(when (= (.getCommand (second %)) type) (second %))
+        (reverse @midi-buffer)))
+
+

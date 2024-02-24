@@ -70,6 +70,7 @@
         bpm-label (JLabel. "BPM:")
         bpm-input (JTextField. (str (sequencer/get-bpm)))
         new-clip-btn (JButton. "New Clip")
+        copy-clip-btn (JButton. "Copy Clip")
         midi-label (JLabel. "Input MIDI Device")
         midi-inputs (reset! midi-input-list (doto (JComboBox. (mk-midi-device-list-model))
                                               (.setEditable false)))
@@ -102,11 +103,15 @@
       (sequencer/set-bpm (Integer/parseInt (.getText bpm-input))))
     (utils/add-action-listener new-clip-btn
       (editor/reset-state))
+    (utils/add-action-listener copy-clip-btn
+      (editor/set-clip
+       (update (editor/get-cur-clip) :name #(str % " copy"))))
     (doto (JPanel. (FlowLayout. FlowLayout/LEFT 10 10))
       (.add play-btn)
       (.add bpm-label)
       (.add bpm-input)
       (.add new-clip-btn)
+      (.add copy-clip-btn)
       (.add midi-label)
       (.add midi-inputs)
       (.add reload-midi-devices-btn)

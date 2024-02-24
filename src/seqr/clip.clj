@@ -499,3 +499,8 @@
 
 (defn parse-actions [action-str clip]
   (get-in (parse-clip action-str clip) [1 1]))
+
+(defn get-last-action-str [clip]
+  (let [clip (build-from-midi 80 clip)
+        [bar note] (get-pos (dec (:point clip)) (:div clip))]
+      (mk-action-str (get-in clip [bar note]) clip)))

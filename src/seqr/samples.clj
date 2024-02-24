@@ -4,7 +4,8 @@
             [clojure.java.io :as io]
             [seqr.connections :as conn]
             [seqr.interpreters :as interp])
-  (:import (java.nio.file Paths)))
+  (:import (java.nio.file Paths)
+           (javax.sound.midi MidiMessage ShortMessage)))
 
 (defonce ^:private buffer-nums (agent #{}))
 
@@ -96,16 +97,37 @@
        :eof (re-pattern (.toString (.append (:exp state) ".*")))))))
 
 (defn drum [{:strs [kit] :keys [action] :as data}]
-   (let [k-pat (gen-sample-pat kit)
-         a-pat (gen-sample-pat action)
-         kit (first (filter #(re-matches k-pat %)
-                            (keys drum-kits)))
-         buf-num (some (fn [[s b]]
+  (let [k-pat (gen-sample-pat kit)
+        a-pat (gen-sample-pat action)
+        kit (first (filter #(re-matches k-pat %)
+                           (keys drum-kits)))
+        buf-num  (some (fn [[s b]]
                          (when (re-matches a-pat (name s))
                            b))
                        (get drum-kits kit))]
-     (if buf-num
-       (assoc data :args (reduce into ["num" buf-num] (dissoc data :action :action-str "kit")))
-       data)))
+    (if buf-num
+      (assoc data :args
+             (reduce into
+                     ["num" buf-num]
+                     (dissoc data :action :action-str "kit")))
+      data)))
 
 (interp/register-interpreter "drum" drum)
+
+(defn midi->drum
+  ([msg]
+   (midi->drum msg {}))
+  ([msg {:keys [args]}]
+   (let [cmd (.getCommand msg)
+         k-pat (gen-sample-pat (get args "kit"))
+         kit (first (filter #(re-matches k-pat %)
+                           (keys drum-kits)))
+         pos (- (.getData1 msg) 48)
+         samples (keys (get drum-kits kit))]
+     (when (and kit
+                (= cmd ShortMessage/NOTE_ON)
+                (>= pos 0)
+                (< pos (count samples)))
+       {:action (nth samples pos)}))))
+
+(interp/register-midi-interpreter "drum" midi->drum)

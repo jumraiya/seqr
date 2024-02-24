@@ -140,4 +140,15 @@
 
 (register-interpreter "scale" scale)
 
-
+#_(defn- midi->scale-note
+  ([msg]
+   (midi->scale-note msg {}))
+  ([msg {:keys [args]}]
+   (when-let [scale (get args "scale")]
+       (let [[root type] (re-seq #"[^\s]+" scale)
+             cmd (.getCommand msg)]
+         (when (and kit
+                    (= cmd ShortMessage/NOTE_ON)
+                    (>= pos 0)
+                    (< pos (count samples)))
+           {:action (nth samples pos)})))))

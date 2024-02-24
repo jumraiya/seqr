@@ -101,7 +101,7 @@
     (send cur-clip assoc :data clip)
     (.fireTableStructureChanged (.getModel @clip-table-editor))))
 
-(defn- mk-table-model [ui-state]
+(defn- mk-table-model [ui-state table]
   (proxy [AbstractTableModel] []
     (getColumnCount []
       (or (-> @cur-clip :data :div) 4))
@@ -122,7 +122,20 @@
                        (assoc new-clip :point (inc at-point))
                        new-clip)))))
     (isCellEditable [row col]
-      true)))
+      true)
+    (fireTableStructureChanged []
+      (let [max-row (.getMaxSelectionIndex (.getSelectionModel table))
+            min-row (.getMinSelectionIndex (.getSelectionModel table))
+            selected-cols (.getSelectedColumns table)
+            [min-col max-col] (or
+                               (and (> (count selected-cols) 0)
+                                    [(apply min selected-cols)
+                                     (apply max selected-cols)])
+                               [-1 -1])]
+          (proxy-super fireTableStructureChanged)
+          (when (and (>= max-row 0) (>= min-row 0) (>= min-col 0) (>= max-col 0))
+            (.setRowSelectionInterval table min-row max-row)
+            (.setColumnSelectionInterval table  min-col max-col))))))
 
  (defn- shift-clip [point ui-state direction]
   (let [new-clip  (if (= :left direction)
@@ -164,7 +177,6 @@
     (when (seq (get-in @cur-clip [:data b n]))
       point)))
 
-
  (defn- move-tracker-selection [state table dir]
    (let [row (.getSelectedRow table)
          col (.getSelectedColumn table)]
@@ -183,10 +195,15 @@
              (.changeSelection table (dec (.getRowCount (.getModel table))) col false false)
              (if
               (int?
-               (when-let [{:keys [div point] :as cl}
-                          (get (:clips @state) (dec col))]
-                 (when-let [seq-div (sequencer/get-div)]
-                   (helper/get-wrapped-point (inc r) div (dec point) seq-div))))
+               (let [pos (dec col)
+                     clips (filter #(sequencer/is-clip-active? (:name %)) (:clips @state))]
+                   (when-let [{:keys [div point] :as cl}
+                              (and
+                               (>= pos 0)
+                               (< pos (count clips))
+                               (nth clips pos))]
+                     (when-let [seq-div (sequencer/get-div)]
+                       (helper/get-wrapped-point (inc r) div (dec point) seq-div)))))
                (.changeSelection table r col false false)
                (recur (case dir :up (dec r) :down (inc r))))))))))
 
@@ -221,22 +238,24 @@
               (save-clip ui-state (assoc-in (:data @cur-clip) pos actions)))))))
   
   (utils/add-key-action text "control T" "toggle-table-mode"
+    (.fireTableStructureChanged (.getModel tracker))
     (.setViewportView editor table)
     (.requestFocusInWindow table)
     (send ui-state assoc ::cur-view :table))
 
   (utils/add-key-action text "control L" "toggle-tracker-mode"
-                        (.setViewportView editor tracker)
-                        (.requestFocusInWindow tracker))
+    (.fireTableStructureChanged (.getModel tracker))
+    (.setViewportView editor tracker)
+    (.requestFocusInWindow tracker))
 
   (utils/add-key-action tracker "control L" "toggle-tracker-mode"
-                        (case (::cur-view @ui-state :text)
-                          :text (do
-                                  (.setViewportView editor text)
-                                  (.requestFocusInWindow text))
-                          :table (do
-                                   (.setViewportView editor table)
-                                   (.requestFocusInWindow table))))
+    (case (::cur-view @ui-state :text)
+      :text (do
+              (.setViewportView editor text)
+              (.requestFocusInWindow text))
+      :table (do
+               (.setViewportView editor table)
+               (.requestFocusInWindow table))))
 
   (utils/add-key-action-with-focus
    table "control T" "toggle-table-mode" JComponent/WHEN_IN_FOCUSED_WINDOW
@@ -297,7 +316,17 @@
 
   (utils/add-key-action tracker "shift SPACE" "reset-play-window"
     (sequencer/reset-play-window)
-    (.fireTableDataChanged (.getModel tracker))))
+    (.fireTableDataChanged (.getModel tracker)))
+  
+  (utils/add-key-action tracker "control alt V" "paste-last-recorded-action"
+    (let [clip (nth (filter #(sequencer/is-clip-active? (:name %))
+                            (:clips @ui-state))
+                    (dec (.getSelectedColumn tracker)))]
+    (.setValueAt (.getModel tracker)
+                   (clip/get-last-action-str clip)
+                   (.getSelectedRow tracker)
+                   (.getSelectedColumn tracker))
+      (.fireTableDataChanged (.getModel tracker)))))
 
 (defn- mk-table-editor []
   (proxy [JTable] []
@@ -321,8 +350,9 @@
   (let [text-editor (doto (utils/text-pane)
                       (.addFocusListener focus-listener))
         _ (reset! clip-text-editor text-editor)
-        table-editor (doto (mk-table-editor)
-                       (.setModel (mk-table-model state))
+        table-editor (mk-table-editor)
+        table-editor (doto table-editor
+                       (.setModel (mk-table-model state table-editor))
                        (.setTableHeader nil)
                        (.addFocusListener focus-listener)
                        (.setFont (Font. "Monospaced" Font/PLAIN 14)))
