@@ -126,16 +126,12 @@
     (fireTableStructureChanged []
       (let [max-row (.getMaxSelectionIndex (.getSelectionModel table))
             min-row (.getMinSelectionIndex (.getSelectionModel table))
-            selected-cols (.getSelectedColumns table)
-            [min-col max-col] (or
-                               (and (> (count selected-cols) 0)
-                                    [(apply min selected-cols)
-                                     (apply max selected-cols)])
-                               [-1 -1])]
+            selected-col (.getSelectedColumn table)
+            row-count (int (/ sequencer/MAX-CLIP-ACTIONS (-> @cur-clip :data (:div 4))))]
           (proxy-super fireTableStructureChanged)
-          (when (and (>= max-row 0) (>= min-row 0) (>= min-col 0) (>= max-col 0))
+          (when (and (< max-row row-count) (>= min-row 0) (>= selected-col 0))
             (.setRowSelectionInterval table min-row max-row)
-            (.setColumnSelectionInterval table  min-col max-col))))))
+            (.setColumnSelectionInterval table  selected-col selected-col))))))
 
  (defn- shift-clip [point ui-state direction]
   (let [new-clip  (if (= :left direction)

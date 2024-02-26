@@ -20,7 +20,7 @@
                  (update-vals #(if (map? %) (:val %) %))
                  (update-vals #(if (fn? %) (% b n) %)))]
     (when (:action data)
-     (f data))))
+      (f data))))
 
 (defn register-midi-interpreter [key f]
   (swap! midi-interpreters assoc key f))

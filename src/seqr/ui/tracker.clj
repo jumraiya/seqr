@@ -57,16 +57,13 @@
     (fireTableStructureChanged []
       (let [max-row (.getMaxSelectionIndex (.getSelectionModel table))
             min-row (.getMinSelectionIndex (.getSelectionModel table))
-            selected-cols (.getSelectedColumns table)
-            [min-col max-col] (or
-                               (and (> (count selected-cols) 0)
-                                    [(apply min selected-cols)
-                                     (apply max selected-cols)])
-                               [-1 -1])]
+            selected-col (.getSelectedColumn table)
+            row-count (sequencer/get-size)
+            col-count (inc (count (sequencer/get-active-clip-names)))]
           (proxy-super fireTableStructureChanged)
-          (when (and (>= max-row 0) (>= min-row 0) (>= min-col 0) (>= max-col 0))
+          (when (and (< max-row row-count) (>= min-row 0) (>= selected-col 0) (< selected-col col-count))
             (.setRowSelectionInterval table min-row max-row)
-            (.setColumnSelectionInterval table  min-col max-col))))))
+            (.setColumnSelectionInterval table  selected-col selected-col))))))
 
 
 (def focus-listener
