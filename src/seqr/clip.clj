@@ -164,9 +164,8 @@
                                     (find-matching-action-var
                                      action-vars (:action-str %))
                                     (:action-str %) (:action %))
-                                   params-str
-                                   " "))))
-                            join)]
+                                   params-str))))
+                            (join " "))]
         (.trim
          (if multi-action?
            (str "[" (.trim action-str) "]"
