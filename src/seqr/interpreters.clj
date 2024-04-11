@@ -1,5 +1,6 @@
 (ns seqr.interpreters
-  (:require [seqr.music :as mu])
+  (:require [seqr.music :as mu]
+            [clojure.string :as str])
   (:import [javax.sound.midi MidiMessage ShortMessage]))
 
 (defonce interpreters (atom {}))
@@ -140,15 +141,45 @@
 
 (register-interpreter "scale" scale)
 
-#_(defn- midi->scale-note
+(defn- midi->scale-note
   ([msg]
    (midi->scale-note msg {}))
   ([msg {:keys [args]}]
    (when-let [scale (get args "scale")]
-       (let [[root type] (re-seq #"[^\s]+" scale)
-             cmd (.getCommand msg)]
-         (when (and kit
-                    (= cmd ShortMessage/NOTE_ON)
-                    (>= pos 0)
-                    (< pos (count samples)))
-           {:action (nth samples pos)})))))
+       (let [gated? (contains? args "gate")
+             [root type] (re-seq #"[^\s]+" scale)
+             cmd (.getCommand msg)
+             midi-note (.getData1 msg)
+             root-note (mu/note (keyword root))
+             scale (mu/scale root type (range 1 (-> mu/SCALE (get (keyword type)) count)))
+             scale-mul (- (last scale) (first scale))
+             intervals (get mu/SCALE type)
+             start (loop [start root-note]
+                     (cond
+                       (and (<= start midi-note)
+                            (<= midi-note (+ start scale-mul))) start
+                       (> midi-note start) (recur (+ start 12))
+                       :else (recur (- start 12))))
+             degree (loop [degree 1 cur start]
+                      (cond
+                        (= cur midi-note) (str degree)
+                        (> cur midi-note) (str degree "b")
+                        :else (recur (inc degree) (+ cur (nth intervals degree)))))
+             octave-mods (str/join (repeat (/ (abs (- start root-note)) 12)
+                                           (cond (> start root-note) ">"
+                                                 (< start root-note) "<"
+                                                 :else "")))
+             ret (if (or (= cmd ShortMessage/NOTE_ON)
+                         (and gated?
+                              (= cmd ShortMessage/NOTE_OFF)))
+                   {:action (str degree octave-mods)}
+                   {})]
+         (if gated?
+           (condp = cmd
+             ShortMessage/NOTE_ON (assoc ret "gate" 1)
+             ShortMessage/NOTE_OFF (assoc ret "gate" 0)
+             ret)
+           (when (= cmd ShortMessage/NOTE_ON)
+             ret))))))
+
+(register-midi-interpreter "scale" midi->scale-note)

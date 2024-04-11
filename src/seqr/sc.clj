@@ -98,8 +98,8 @@
      (fn [_]
        (deliver synced true)))
     (conn/send! "sc" (sc-sync {"syncId" sync-id}))
-    (when (deref synced 500 false)
-      (deref res 1000 nil))))
+    (when (deref synced 100 false)
+      (deref res 100 nil))))
 
 (defn- parse-synth-tree
   [id ctls?]
@@ -180,7 +180,7 @@
      (let [existing-gid (get-in @clip-mixer-data [name :group])
            exists (when existing-gid
                     (query-group existing-gid))]
-       (Thread/sleep 500) ;; Try to avoid overwhelming sc
+       ;(Thread/sleep 500) ;; Try to avoid overwhelming sc
        (if (nil? exists)
          (loop [i 0 g-id (swap! clip-group-num inc)]
            (make-sync-request
