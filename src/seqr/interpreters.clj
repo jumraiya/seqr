@@ -72,10 +72,11 @@
 
 (register-midi-interpreter "note" midi->note)
 
-#_(defn scale [{:keys [action] :strs [scale] :as data}]
+(defn scale2 [{:keys [action] :strs [scale] :as data}]
   (when scale
-    (let [[root type] (re-seq #"[^\s]+" scale)
-          scale (mu/scale (keyword root) (keyword type))
+    (let [[root type] (mapv keyword (re-seq #"[^\s]+" scale))
+          scale (mu/scale root type (range 1 (-> mu/SCALE (get type) count)))
+          scale-len (count scale)
           [_ degree mods] (if (string? action)
                             (re-find #"(\d+)([b#<>]*)?" action)
                             [nil action nil])
@@ -87,11 +88,12 @@
                                   \< (- n 12)
                                   :else n))
                               %1 %2)
-          idx (if (string? degree)
-                (-> degree Integer/parseInt dec)
-                degree)
-          idx (if (< idx (count scale)) idx (rem idx (count scale)))
-          n (apply-mods (nth scale idx) mods)]
+          degree (if (string? degree)
+                   (-> degree Integer/parseInt dec)
+                   (dec degree))
+          idx (if (< degree scale-len) degree (rem degree scale-len))
+          n (+ (apply-mods (nth scale idx) mods)
+               (* 12 (quot degree scale-len)))]
       (assoc data :args
              (flatten
               (into []
@@ -101,43 +103,45 @@
                         (dissoc :action-str)
                         (assoc "note" n "freq" (mu/midi->hz n)))))))))
 
+(register-interpreter "scale2" scale2)
+
 (defn scale [{:keys [action] :strs [scale] :as data}]
   (when scale
-      (let [[root type] (re-seq #"[^\s]+" scale)
-            scale (mu/scale (keyword root) (keyword type))
-            scale (if (= 0 (mod (last scale) (first scale)))
-                    (butlast scale) scale)
-            pitches (cycle scale)
-            [s no modify oct] (first (re-seq
-                                      #"([0-9]+)([b#><]+)*\|?([1-9]+)?"
-                                      (str action)))
-            no (Integer/parseInt no)
-            n (nth pitches
-                   (dec
-                    no))
-            n (+ n (* 12 (int (/ no (count scale)))))
-            n (if (not (nil? oct))
-                (-> n mu/find-pitch-class-name name (str oct) keyword mu/note)
-                n)
-            n (if (not (nil? modify))
-                (reduce (fn [n m]
-                          (cond (= \b m) (dec n)
-                                (= \# m) (inc n)
-                                (= \> m) (+ 12 n)
-                                (= \< m) (- n 12)
-                                true n
-                                ))
-                        n modify)
-                n)
-            freq (mu/midi->hz n)]
-        (assoc data :args
-               (flatten
-                (into []
-                      (-> data
-                          (dissoc "scale")
-                          (dissoc :action)
-                          (dissoc :action-str)
-                          (assoc "note" n "freq" (mu/midi->hz n)))))))))
+    (let [[root type] (re-seq #"[^\s]+" scale)
+          scale (mu/scale (keyword root) (keyword type))
+          scale (if (= 0 (mod (last scale) (first scale)))
+                  (butlast scale) scale)
+          pitches (cycle scale)
+          [s no modify oct] (first (re-seq
+                                    #"([0-9]+)([b#><]+)*\|?([1-9]+)?"
+                                    (str action)))
+          no (Integer/parseInt no)
+          n (nth pitches
+                 (dec
+                  no))
+          n (+ n (* 12 (int (/ no (count scale)))))
+          n (if (not (nil? oct))
+              (-> n mu/find-pitch-class-name name (str oct) keyword mu/note)
+              n)
+          n (if (not (nil? modify))
+              (reduce (fn [n m]
+                        (cond (= \b m) (dec n)
+                              (= \# m) (inc n)
+                              (= \> m) (+ 12 n)
+                              (= \< m) (- n 12)
+                              true n
+                              ))
+                      n modify)
+              n)
+          freq (mu/midi->hz n)]
+      (assoc data :args
+             (flatten
+              (into []
+                    (-> data
+                        (dissoc "scale")
+                        (dissoc :action)
+                        (dissoc :action-str)
+                        (assoc "note" n "freq" (mu/midi->hz n)))))))))
 
 (register-interpreter "scale" scale)
 
@@ -147,24 +151,24 @@
   ([msg {:keys [args]}]
    (when-let [scale (get args "scale")]
        (let [gated? (contains? args "gate")
-             [root type] (re-seq #"[^\s]+" scale)
+             [root type] (mapv keyword (re-seq #"[^\s]+" scale))
              cmd (.getCommand msg)
              midi-note (.getData1 msg)
-             root-note (mu/note (keyword root))
-             scale (mu/scale root type (range 1 (-> mu/SCALE (get (keyword type)) count)))
+             root-note (mu/note root)
+             scale (mu/scale root type (range 1 (-> mu/SCALE (get type) count)))
              scale-mul (- (last scale) (first scale))
-             intervals (get mu/SCALE type)
+             intervals (cycle (get mu/SCALE type))
              start (loop [start root-note]
                      (cond
-                       (and (<= start midi-note)
-                            (<= midi-note (+ start scale-mul))) start
+                       (<= start midi-note) start
                        (> midi-note start) (recur (+ start 12))
                        :else (recur (- start 12))))
              degree (loop [degree 1 cur start]
+                      ;(prn degree (mu/find-note-name cur))
                       (cond
                         (= cur midi-note) (str degree)
                         (> cur midi-note) (str degree "b")
-                        :else (recur (inc degree) (+ cur (nth intervals degree)))))
+                        :else (recur (inc degree) (+ cur (nth intervals (dec degree))))))             
              octave-mods (str/join (repeat (/ (abs (- start root-note)) 12)
                                            (cond (> start root-note) ">"
                                                  (< start root-note) "<"
@@ -182,4 +186,6 @@
            (when (= cmd ShortMessage/NOTE_ON)
              ret))))))
 
-(register-midi-interpreter "scale" midi->scale-note)
+(register-midi-interpreter "scale2" midi->scale-note)
+
+
