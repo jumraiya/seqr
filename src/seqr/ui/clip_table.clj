@@ -27,20 +27,31 @@
     (isCellEditable [row col]
       false)))
 
-(defn- build-table []
+(defn- build-table [state]
   (proxy [JTable] []
     (getCellRenderer [row col]
       (reify TableCellRenderer
         (getTableCellRendererComponent [this table value isSelected hasFocus row col]
           (let [f (doto (JLabel. value)
                     (.setFont (Font. "Monospaced" Font/PLAIN 16)))
+                clip-name (.getValueAt (.getModel table) row col)
                 is-active? (sequencer/is-clip-active?
-                            (.getValueAt (.getModel table) row col))]
-            (when is-active?
+                            clip-name)
+                is-selected? (contains? (:selected-clips @state) clip-name)]
+            (cond
+              (and is-selected? is-active?)
               (doto f
                 (.setForeground (Color/BLACK))
-                (.setBackground (Color/GREEN))
-                (.setOpaque true)))
+                (.setBackground (Color/PINK))
+                (.setOpaque true))
+              is-selected? (doto f
+                             (.setForeground (Color/BLACK))
+                             (.setBackground (Color/LIGHT_GRAY))
+                             (.setOpaque true))
+              is-active? (doto f
+                           (.setForeground (Color/BLACK))
+                           (.setBackground (Color/GREEN))
+                           (.setOpaque true)))
             (when hasFocus
               (if is-active?
                 (.setBorder f (LineBorder. Color/BLACK 2))
@@ -63,7 +74,7 @@
 
 (defn create [state]
   (let [table-model (mk-model state)
-        table (doto (build-table)
+        table (doto (build-table state)
                 (.setModel table-model)
                 (.setTableHeader nil)
                 (.addFocusListener focus-listener))
@@ -86,26 +97,78 @@
                (send state update :clips
                      #(into (subvec % 0 clip-pos) (subvec % (inc clip-pos))))
                (sequencer/rm-clip clip-name))))
+    
     (utils/add-key-action
         table "control A" "set-clip-active"
-      (let [row (.getSelectedRow table)
-            col (.getSelectedColumn table)]
-        (sequencer/set-clip-active (.getValueAt table-model row col) true)
-        (.fireTableDataChanged table-model)))
+        (let [row (.getSelectedRow table)
+              col (.getSelectedColumn table)]
+          (if-not (empty? (:selected-clips @state))
+            (do
+              (doseq [c (:selected-clips @state)]
+                (sequencer/set-clip-active c true))
+              (send state update :selected-clips empty))
+            (sequencer/set-clip-active (.getValueAt table-model row col) true))
+          (.fireTableDataChanged table-model)))
+
+    (utils/add-key-action
+        table "control alt A" "set-clip-active-and-mute"
+        (let [row (.getSelectedRow table)
+              col (.getSelectedColumn table)]
+          (if-not (empty? (:selected-clips @state))
+            (do
+              (doseq [c (:selected-clips @state)]
+                (s.sc/update-clip-vol c 0 true)
+                (sequencer/set-clip-active c true))
+              (send state update :selected-clips empty))
+            (do
+              (s.sc/update-clip-vol (.getValueAt table-model row col) 0 true)
+              (sequencer/set-clip-active (.getValueAt table-model row col) true)))
+          (.fireTableDataChanged table-model)))
+    
+    (utils/add-key-action
+        table "control shift A" "toggle-select-clip"
+        (let [row (.getSelectedRow table)
+              col (.getSelectedColumn table)
+              clip-name (.getValueAt table-model row col)]
+          (send state update :selected-clips
+                #(let [s (set %)]
+                     (if (contains? s clip-name)
+                       (disj s clip-name)
+                       (conj s clip-name))))
+          (.fireTableDataChanged table-model)))
+    
+    (utils/add-key-action
+        table "control shift X" "unselect-all-clips"
+      (send state update :selected-clips empty)
+      (.fireTableDataChanged table-model))
+    
     (utils/add-key-action
         table "control X" "set-clip-inactive"
-      (let [row (.getSelectedRow table)
-            col (.getSelectedColumn table)]
-          (sequencer/set-clip-active (.getValueAt table-model row col) false)
+        (let [row (.getSelectedRow table)
+              col (.getSelectedColumn table)]
+          (if-not (empty? (:selected-clips @state))
+            (do
+              (doseq [c (:selected-clips @state)]
+                (sequencer/set-clip-active c false))
+              (send state update :selected-clips empty))
+            (sequencer/set-clip-active (.getValueAt table-model row col) false))
           (.fireTableDataChanged table-model)))
+    
     (utils/add-key-action
         table "shift DOWN" "reduce-vol"
-      (let [row (.getSelectedRow table)
-            col (.getSelectedColumn table)]
-        (s.sc/update-clip-vol (.getValueAt table-model row col) -0.2)))
+        (let [row (.getSelectedRow table)
+              col (.getSelectedColumn table)]
+          (if-not (empty? (:selected-clips @state))
+            (doseq [c (:selected-clips @state)]
+              (s.sc/update-clip-vol c -0.01))
+            (s.sc/update-clip-vol (.getValueAt table-model row col) -0.05))))
+    
     (utils/add-key-action
         table "shift UP" "increase-vol"
-      (let [row (.getSelectedRow table)
-            col (.getSelectedColumn table)]
-          (s.sc/update-clip-vol (.getValueAt table-model row col) 0.2)))
+        (let [row (.getSelectedRow table)
+              col (.getSelectedColumn table)]
+          (if-not (empty? (:selected-clips @state))
+            (doseq [c (:selected-clips @state)]
+              (s.sc/update-clip-vol c 0.01))
+            (s.sc/update-clip-vol (.getValueAt table-model row col) 0.05))))
     (JScrollPane. table)))

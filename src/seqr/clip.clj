@@ -347,7 +347,7 @@
                                                        (not (= 1 note))) (str ":" rest-val " ")
                                                   (and (= p point)
                                                        (> (dec p) last-action)
-                                                       (not (= 1 note))) (str ":" (- p last-action 1) " ")
+                                                       (not (= 1 note))) (str ":" (- p (max last-action (- p (rem p div))) 1) " ")
                                                   :else "")
                                        s (mk-action-str (get-in clip [bar note] []) clip)
                                        [actions lens] (if has-action?

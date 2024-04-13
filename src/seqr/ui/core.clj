@@ -14,10 +14,10 @@
 (defonce ^:private ui-frame (atom nil))
 
 (defonce ^:private state
-  (agent {:clips [] :selected-clip nil}))
+  (agent {:clips [] :selected-clip nil :selected-clips #{}}))
 
 (defn reset-state []
-  (send state (constantly {:clips [] :selected-clip nil})))
+  (send state (constantly {:clips [] :selected-clip nil :selected-clips #{}})))
 
 (defn- add-key-bindings [clip-pane [text-view table-view config tracker :as components] clip-table clip-config]
   (doseq [c components]

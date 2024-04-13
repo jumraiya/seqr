@@ -216,15 +216,17 @@
       (swap! available-audio-buses conj bus)
       (send clip-mixer-data dissoc name))))
 
-(defn update-clip-vol [name add]
+(defn update-clip-vol [name value & [reset?]]
   (when-let [group-id (get-in @clip-mixer-data [name :group])]
     (when-let [{:keys [children]} (query-group group-id true)]
       (let [{:keys [id controls]}
             (some #(when (= (:id %) (get-in @clip-mixer-data [name :mixer]))
                      %)
                   children)
-            new-vol (+ (get controls "volume") add)]
-        (when (>= new-vol 0.000001)
+            new-vol (if reset?
+                      value
+                      (+ (get controls "volume") value))]
+        (when (or reset? (>= new-vol 0.000001))
          (conn/send! "sc" (n-set {"node-id" id "control" "volume" "val" new-vol})))))))
 
 
