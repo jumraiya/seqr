@@ -13,11 +13,18 @@
 
 (defonce ^:private ui-frame (atom nil))
 
+(def default-state
+  {:clips []
+   :selected-clip nil
+   :selected-clips #{}
+   :clips-marked-to-be-active #{}
+   :clips-marked-to-be-inactive #{}})
+
 (defonce ^:private state
-  (agent {:clips [] :selected-clip nil :selected-clips #{}}))
+  (agent default-state))
 
 (defn reset-state []
-  (send state (constantly {:clips [] :selected-clip nil :selected-clips #{}})))
+  (send state (constantly default-state)))
 
 (defn- add-key-bindings [clip-pane [text-view table-view config tracker :as components] clip-table clip-config]
   (doseq [c components]

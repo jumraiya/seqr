@@ -37,13 +37,23 @@
                 clip-name (.getValueAt (.getModel table) row col)
                 is-active? (sequencer/is-clip-active?
                             clip-name)
-                is-selected? (contains? (:selected-clips @state) clip-name)]
+                is-selected? (contains? (:selected-clips @state) clip-name)
+                is-marked-active? (contains? (:clips-marked-to-be-active @state) clip-name)
+                is-marked-inactive? (contains? (:clips-marked-to-be-inactive @state) clip-name)]
             (cond
               (and is-selected? is-active?)
               (doto f
                 (.setForeground (Color/BLACK))
                 (.setBackground (Color/PINK))
                 (.setOpaque true))
+              is-marked-active? (doto f
+                                  (.setForeground (Color/BLACK))
+                                  (.setBackground (Color/ORANGE))
+                                  (.setOpaque true))
+              is-marked-inactive? (doto f
+                                    (.setForeground (Color/BLACK))
+                                    (.setBackground (Color/CYAN))
+                                    (.setOpaque true))
               is-selected? (doto f
                              (.setForeground (Color/BLACK))
                              (.setBackground (Color/LIGHT_GRAY))
@@ -124,6 +134,33 @@
               (s.sc/update-clip-vol (.getValueAt table-model row col) 0 true)
               (sequencer/set-clip-active (.getValueAt table-model row col) true)))
           (.fireTableDataChanged table-model)))
+
+    (utils/add-key-action
+        table "shift alt A" "mark-clip-to-be-active"
+      (let [row (.getSelectedRow table)
+            col (.getSelectedColumn table)]
+        (send state update :clips-marked-to-be-active
+              #(conj (set %) (.getValueAt table-model row col)))
+        (.fireTableDataChanged table-model)))
+
+    (utils/add-key-action
+        table "shift alt X" "mark-clip-to-be-inactive"
+      (let [row (.getSelectedRow table)
+            col (.getSelectedColumn table)]
+        (send state update :clips-marked-to-be-inactive
+              #(conj (set %) (.getValueAt table-model row col)))
+        (.fireTableDataChanged table-model)))
+
+    (utils/add-key-action
+        table "shift alt S" "process-marked-clips"
+      (doseq [c (:clips-marked-to-be-inactive @state)]
+        (sequencer/set-clip-active c false))
+      (doseq [c (:clips-marked-to-be-active @state)]
+        (sequencer/set-clip-active c true))
+      (send state #(-> %
+                       (update :clips-marked-to-be-inactive empty)
+                       (update :clips-marked-to-be-active empty)))
+      (.fireTableDataChanged table-model))
     
     (utils/add-key-action
         table "control shift A" "toggle-select-clip"
@@ -132,9 +169,9 @@
               clip-name (.getValueAt table-model row col)]
           (send state update :selected-clips
                 #(let [s (set %)]
-                     (if (contains? s clip-name)
-                       (disj s clip-name)
-                       (conj s clip-name))))
+                   (if (contains? s clip-name)
+                     (disj s clip-name)
+                     (conj s clip-name))))
           (.fireTableDataChanged table-model)))
     
     (utils/add-key-action
