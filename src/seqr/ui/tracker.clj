@@ -13,6 +13,10 @@
 
 (defonce active-row (atom nil))
 
+(def ODD-COLOR (Color. 85 85 85))
+
+(def EVEN-COLOR (Color. 83 104 120))
+
 (defn- get-clip [state col]
   (let [clips (filter #(sequencer/is-clip-active? (:name %)) (:clips @state))]
     (when (and (> col 0) (<= col (count clips)))
@@ -85,9 +89,19 @@
     (getCellRenderer [row col]
       (reify TableCellRenderer
         (getTableCellRendererComponent [this table value isSelected hasFocus row col]
-          (let [f (doto (JLabel. ^String (str value))
+          (let [{:keys [div point]} (get-clip state col)
+                f (doto (JLabel. ^String (str value))
                     (.setFont (Font. "Monospaced" Font/PLAIN 16)))]
 
+            (when (and div (> col 0) (= 0 (mod row (/ (sequencer/get-div) div))))
+              (let [pos (/ row (/ (sequencer/get-div) div))]
+                  (doto f
+                    (.setBackground (if (or (<= (inc pos) (dec point))
+                                            (even? (quot pos (dec point))))
+                                      EVEN-COLOR
+                                      ODD-COLOR))
+                    (.setOpaque true))))
+            
             (when (contains? (set (.getSelectedRows table)) row)
               (doto f
                 (.setBackground Color/WHITE)
@@ -109,9 +123,6 @@
                 (.setOpaque true)))
             (when hasFocus
               (.setBorder f (LineBorder. Color/RED 2))
-              #_(if (= row @active-row)
-                  (.setBorder f (LineBorder. Color/BLACK 2))
-                  (.setBorder f (LineBorder. Color/YELLOW 2)))
               (set-clip-fn (get-clip state col)))
             f))))))
 
