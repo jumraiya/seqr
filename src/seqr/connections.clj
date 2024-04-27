@@ -1,6 +1,7 @@
 (ns seqr.connections
   (:require
-   [seqr.osc :as osc])
+   [seqr.osc :as osc]
+   [seqr.midi :as midi])
   (:import
    [java.net InetSocketAddress DatagramSocket InetAddress DatagramPacket]
    [java.nio ByteBuffer]
@@ -10,6 +11,8 @@
 
 
 (defonce ^:private destinations (atom {}))
+
+(defonce ^:private midi-destinations (atom {}))
 
 (defonce ^:private messages (agent {}))
 
@@ -96,13 +99,25 @@
   (when serializer
     (swap! serializers assoc name serializer)))
 
+(defn add-midi-destination! [^String device-name & [serializer]]
+  (if-let [device (midi/find-receiver device-name)]
+    (try
+      (when (not (.isOpen device))
+        (.open device))
+      (swap! midi-destinations assoc device-name (.getReceiver device))
+      (when serializer
+          (swap! serializers assoc device-name serializer))
+      (catch Exception e
+        (prn "Could not connect to midi device" device-name)))
+    (prn (str "Could not find device " device-name))))
+
 (defn rm-destination! [^String host ^Integer port name]
   (when-let [dest (get @destinations name)]
     (.close dest)
     (swap! destinations dissoc name)))
 
 (defn get-destinations []
-  (keys @destinations))
+  (reduce into [] [(keys @destinations) (keys @midi-destinations)]))
 
 (defn connect! [^String host ^Integer port name]
   (try
@@ -125,10 +140,14 @@
   ([conn bytes]
    (send! conn bytes 0 (alength bytes)))
   ([conn bytes offset length]
-   (when-let [dest (get @destinations conn)]
-     (.send @data-socket
-            (DatagramPacket. bytes offset length
-                             dest)))))
+   (if-let [midi-dest (get @midi-destinations conn)]
+     (.send midi-dest (doto (com.seqr.MidiMessage.)
+                        (.setData bytes))
+            -1)
+     (when-let [dest (get @destinations conn)]
+       (.send @data-socket
+              (DatagramPacket. bytes offset length
+                               dest))))))
 
 (defn try-send!
   ([conn bytes]

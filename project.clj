@@ -8,4 +8,4 @@
                  [com.formdev/flatlaf "3.2.5"]
                  [com.github.flow-storm/flow-storm-dbg "RELEASE"]]
   :repl-options {:init-ns seqr.core}
-  :aot [seqr.tui.ClipRenderer])
+  :aot [seqr.serializable-midi-message])

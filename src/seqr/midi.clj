@@ -49,6 +49,13 @@
             device))
         (MidiSystem/getMidiDeviceInfo)))
 
+(defn find-receiver [name]
+  (some #(let [device (MidiSystem/getMidiDevice %)]
+          (when (and (.contains (.toString %) name)
+                     (> (.getMaxTransmitters device) -1))
+            device))
+        (MidiSystem/getMidiDeviceInfo)))
+
 (defn toggle-recording
   [device-name]
   (let [start? (not @is-recording?)]
@@ -99,5 +106,3 @@
 (defn get-last-message [type]
   (some #(when (= (.getCommand (second %)) type) (second %))
         (reverse @midi-buffer)))
-
-

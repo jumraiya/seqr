@@ -12,6 +12,8 @@
 
 (conn/add-destination! "localhost" 57120 "sc-lang" se/sc-new-synth)
 
+(conn/add-midi-destination! "Reaper" se/midi-serializer)
+
 (conn/reset-receiver)
 
 (comment
