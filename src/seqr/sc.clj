@@ -234,7 +234,8 @@
   (sequencer/register-callback sequencer/clip-saved :setup-mixer #'setup-mixer)
   (sequencer/register-callback sequencer/clip-deleted :rm-sc-group #'delete-clip-group)
   (sequencer/register-callback
-   sequencer/sequencer-paused :stop-gated #(conn/send! "sc-lang" (stop-gated {}))))
+   sequencer/sequencer-paused :stop-gated
+   #(conn/send! "sc-lang" (stop-gated {}))))
 
 (defn- reset-audio-buses []
   (doseq [b @available-audio-buses]

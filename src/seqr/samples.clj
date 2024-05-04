@@ -69,9 +69,10 @@
 (defn- next-token [text]
   (if text
     (let [text (.trim text)
-          [match letters nums other]
-          (re-find #"([a-zA-Z]+)|([0-9]+)|([^a-zA-Z0-9]+)" text)]
+          [match quoted letters nums other]
+          (re-find #"('[^']+')|([a-zA-Z]+)|([0-9]+)|([^a-zA-Z0-9]+)" text)]
       [(cond
+         (some? quoted) {:type :alpha :val (string/replace quoted "'" "")}
          (some? letters) {:type :alpha :val letters}
          (some? nums) {:type :num :val nums}
          (some? other) {:type :other :val other}

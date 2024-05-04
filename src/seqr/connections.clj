@@ -119,6 +119,9 @@
 (defn get-destinations []
   (reduce into [] [(keys @destinations) (keys @midi-destinations)]))
 
+(defn get-midi-destinations []
+  (keys @midi-destinations))
+
 (defn connect! [^String host ^Integer port name]
   (try
     (let [ch (doto (SocketChannel/open)
