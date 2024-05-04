@@ -20,6 +20,9 @@
 (def stop-gated
   (osc/builder "/stop_gated"))
 
+(def stop-gated-synth
+  (osc/builder "/stop_gated ?target"))
+
 (def n-set (osc/builder "/n_set ?node-id ?control ?val"))
 
 (def n-free (osc/builder "/n_set ?node-id"))
@@ -235,7 +238,11 @@
   (sequencer/register-callback sequencer/clip-deleted :rm-sc-group #'delete-clip-group)
   (sequencer/register-callback
    sequencer/sequencer-paused :stop-gated
-   #(conn/send! "sc-lang" (stop-gated {}))))
+   #(conn/send! "sc-lang" (stop-gated {})))
+  (sequencer/register-callback
+   sequencer/clip-made-inactive
+   :stop-gated #(when-let [target (-> % last :args (get "target"))]
+                  (conn/send! "sc-lang" (stop-gated-synth {"target" target})))))
 
 (defn- reset-audio-buses []
   (doseq [b @available-audio-buses]
