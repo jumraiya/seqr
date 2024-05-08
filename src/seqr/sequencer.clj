@@ -77,7 +77,13 @@
           (with-local-vars [f-len [(byte 0) (byte 0)]]
             (loop [offset 0 actions actions]
               (let [[action & actions] actions
-                    bytes (->> action (in/interpret clip) (se/serialize clip))
+                    interpreted (in/interpret clip action)
+                    actions (if (sequential? interpreted)
+                              (into (vec (rest interpreted)) actions)
+                              actions)
+                    bytes (se/serialize clip (if (sequential? interpreted)
+                                               (first interpreted)
+                                               interpreted))
                     len (alength bytes)
                     next-offset (+ offset len 3)
                     len-seq (helper/short->bytes len)

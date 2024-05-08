@@ -20,8 +20,10 @@
                                  %))
                  (update-vals #(if (map? %) (:val %) %))
                  (update-vals #(if (fn? %) (% b n) %)))]
-    (when (:action data)
-      (f data))))
+    (cond
+      (:action data) (f data)
+      (map? data) data
+      :else nil)))
 
 (defn register-midi-interpreter [key f]
   (swap! midi-interpreters assoc key f))
@@ -72,28 +74,31 @@
 
 (register-midi-interpreter "note" midi->note)
 
+(defn- scale-note [root type degree]
+  (let [scale (mu/scale root type (range 1 (-> mu/SCALE (get type) count)))
+        scale-len (count scale)
+        [_ degree mods] (if (string? degree)
+                          (re-find #"(\d+)([b#<>]*)?" degree)
+                          [nil degree nil])
+        apply-mods #(reduce (fn [n m]
+                              (condp = m
+                                \b (dec n)
+                                \# (inc n)
+                                \> (+ 12 n)
+                                \< (- n 12)
+                                :else n))
+                            %1 %2)
+        degree (if (string? degree)
+                 (-> degree Integer/parseInt dec)
+                 (dec degree))
+        idx (if (< degree scale-len) degree (rem degree scale-len))]
+    (+ (apply-mods (nth scale idx) mods)
+       (* 12 (quot degree scale-len)))))
+
 (defn scale2 [{:keys [action] :strs [scale] :as data}]
   (when scale
     (let [[root type] (mapv keyword (re-seq #"[^\s]+" scale))
-          scale (mu/scale root type (range 1 (-> mu/SCALE (get type) count)))
-          scale-len (count scale)
-          [_ degree mods] (if (string? action)
-                            (re-find #"(\d+)([b#<>]*)?" action)
-                            [nil action nil])
-          apply-mods #(reduce (fn [n m]
-                                (condp = m
-                                  \b (dec n)
-                                  \# (inc n)
-                                  \> (+ 12 n)
-                                  \< (- n 12)
-                                  :else n))
-                              %1 %2)
-          degree (if (string? degree)
-                   (-> degree Integer/parseInt dec)
-                   (dec degree))
-          idx (if (< degree scale-len) degree (rem degree scale-len))
-          n (+ (apply-mods (nth scale idx) mods)
-               (* 12 (quot degree scale-len)))]
+          n (scale-note root type action)]
       (assoc data :args
              (flatten
               (into []
@@ -188,4 +193,25 @@
 
 (register-midi-interpreter "scale2" midi->scale-note)
 
+(defn- chord-action [{:keys [action] :strs [scale] :as data}]
+  (let [[root type] (mapv keyword (re-seq #"[^\s]+" scale))
+        [degree ctype] (mapv keyword (str/split action #"-"))
+        notes (if (nil? ctype)
+                (mu/chord-degree degree root type)
+                (let [rt (scale-note root type (name degree))]
+                  (mapv #(+ % rt)
+                        (sort (mu/resolve-chord ctype)))))]
+    (into []
+          (comp
+           (map #(assoc data :args
+                        (into ["note" % "freq" (mu/midi->hz %)]
+                              (flatten
+                               (into []
+                                     (-> data
+                                         (dissoc "scale")
+                                         (dissoc :action)
+                                         (dissoc :action-str)))))))
+           (map #(dissoc % "scale" :action :action-str)))
+          notes)))
 
+(register-interpreter "scale-chord" chord-action)
