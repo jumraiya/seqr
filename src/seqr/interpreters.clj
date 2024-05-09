@@ -21,8 +21,11 @@
                  (update-vals #(if (map? %) (:val %) %))
                  (update-vals #(if (fn? %) (% b n) %)))]
     (cond
-      (:action data) (f data)
-      (map? data) data
+      (:action data) (when-let [d (f data)]
+                       (if (sequential? d)
+                         (mapv #(assoc % ::interpreted? true) d)
+                         (assoc d ::interpreted? true)))
+      (and (map? data) (true? (::interpreted? data))) data
       :else nil)))
 
 (defn register-midi-interpreter [key f]
