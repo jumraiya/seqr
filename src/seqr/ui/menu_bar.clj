@@ -44,7 +44,6 @@
           (save-sketch path state ui-reset-fn))))))
 
 (defn- new-sketch [state]
-  (send state (constantly {:clips [] :selected-clip nil}))
   (editor/reset-state)
   (sequencer/reset-state))
 
@@ -58,7 +57,8 @@
                     (.add save-as))]
     (utils/add-action-listener
         new
-        (new-sketch state))
+      (ui-reset-fn)
+      (new-sketch state))
     (utils/add-action-listener
         open
         (save-load-sketch (.getTopLevelAncestor open) state true ui-reset-fn))

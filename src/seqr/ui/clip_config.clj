@@ -93,9 +93,15 @@
                        (clip/parse-actions prop new-clip)
                        :else %)
                     new-clip)
-                   new-clip)]
+                   new-clip)
+        new-clip (cond-> new-clip
+                   (and (= p [:dest]) (contains? (:dest-default-args @ui-state) v))
+                   (update :args merge (get (:dest-default-args @ui-state) v))
+                   (and (= p [:interpreter]) (contains? (:interpreter-default-args @ui-state) v))
+                   (update :args merge (get (:interpreter-default-args @ui-state) v)))]
     (when prop
-      (save-fn ui-state new-clip))))
+      (save-fn ui-state new-clip)
+      (.repaint table))))
 
 (defn- config-model [clip-atom table ui-state save-fn]
   (proxy [AbstractTableModel] []

@@ -18,7 +18,12 @@
    :selected-clip nil
    :selected-clips #{}
    :clips-marked-to-be-active #{}
-   :clips-marked-to-be-inactive #{}})
+   :clips-marked-to-be-inactive #{}
+   :dest-default-args {"sc" {"synth" "sin"}
+                       "sc-lang" {"synth" "sin" "gate" 1}}
+   :interpreter-default-args {"scale2" {"scale" "d4 major"}
+                              "scale-chord" {"scale" "d4 major"}
+                              "drum" {"synth" "sample" "kit" "kit4-electro"}}})
 
 (defonce ^:private state
   (agent default-state))
