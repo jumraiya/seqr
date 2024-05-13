@@ -298,10 +298,10 @@
                is-action?
                (update-in pos
                           #(conj (vec %)
-                                 (merge args {:action action
-                                              :action-str (str action-str)}
-                                        (when action-var-str
-                                          {:action-var-str action-var-str}))))
+                                 (into {:action action
+                                        :action-str (str action-str)}
+                                       (when action-var-str
+                                         {:action-var-str action-var-str}))))
                (or dynamic?
                    (and is-action?
                         (some #(when (and (map? %) (fn? (:val %))) true) (vals args))))

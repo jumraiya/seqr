@@ -7,7 +7,8 @@
             [seqr.samples :as samples]
             [seqr.sequencer :as sequencer]
             [seqr.connections :as conn]
-            [seqr.serializers :as se])
+            [seqr.serializers :as se]
+            [seqr.ui.clip-config :as clip-config])
   (:import [java.lang ProcessHandle]
            [javax.sound.midi MidiMessage ShortMessage]))
 
@@ -36,6 +37,12 @@
 (def sc-sync (osc/builder "/sync ?syncId"))
 
 (def sc-status-req ((osc/builder "/status") {}))
+
+(def sc-new-synth
+  (osc/builder "/s_new ?synth ?node-id:-1 ?add-action:0 ?target:0 ...?args"))
+
+
+(def get-controls (osc/builder "/get_controls ?synth:sin"))
 
 (defonce available-audio-buses (atom #{}))
 
@@ -81,6 +88,12 @@
 
 (def ^:private sc-synth-monitor-thread nil)
 
+(def ^:private default-args
+  {[:dest] {"sc" {"synth" "sin"}
+            "sc-lang" {"synth" "sin" "gate" 1}}
+   [:interpreter] {"scale2" {"scale" "d4 major"}
+                   "scale-chord" {"scale" "d4 major"}
+                   "drum" {"synth" "sample" "kit" "kit4-electro"}}})
 
 (defn- make-sync-request [req & [resp-matcher resp-handler]]
   "Ensures that the request has been processed before returning"
@@ -164,7 +177,7 @@
                        %)
                     children)
       (make-sync-request
-       (se/sc-new-synth
+       (sc-new-synth
              {"synth" "clipMixer"
               "add-action" 1
               "target" group-id
@@ -232,6 +245,16 @@
         (when (or reset? (>= new-vol 0.000001))
          (conn/send! "sc" (n-set {"node-id" id "control" "volume" "val" new-vol})))))))
 
+(defn- get-synth-args [synth]
+  (let [synth-args (promise)
+        _ (conn/register-one-off-listener
+           (keyword "controls" synth)
+           (fn [url data] (and (= "/synth_controls" url)
+                               (= synth (first data))))
+           (fn [data] (deliver synth-args (into {} (map vec) (partition 2 (rest data))))))
+        _ (conn/send! "sc-lang" (get-controls {"synth" synth}))]
+    (deref synth-args 100 nil)))
+
 
 (defn- register-callbacks []
   (sequencer/register-callback sequencer/clip-saved :setup-mixer #'setup-mixer)
@@ -242,7 +265,21 @@
   (sequencer/register-callback
    sequencer/clip-made-inactive
    :stop-gated #(when-let [target (-> % last :args (get "target"))]
-                  (conn/send! "sc-lang" (stop-gated-synth {"target" target})))))
+                  (conn/send! "sc-lang" (stop-gated-synth {"target" target}))))
+
+  (clip-config/register-callback
+   clip-config/clip-arg-set-event
+   :sc-synth-args
+   (fn [clip arg old-value value]
+     (if (= arg [:args "synth"])
+       (if-let [synth-args (get-synth-args value)]
+         (assoc clip :args (merge synth-args
+                                  (assoc
+                                   (reduce dissoc (:args clip)
+                                           (keys (get-synth-args old-value)))
+                                   "synth" value)))
+         clip)
+       clip))))
 
 (defn- reset-audio-buses []
   (doseq [b @available-audio-buses]
@@ -321,11 +358,37 @@
       (.start t))))
 
 
+(defn- action->s-new [{:keys [args] :as action}]
+  (let [synth-args (get-synth-args (get action "synth"))
+        action (update action :args
+                       #(into []
+                              (comp
+                               (filter (fn [[arg value]]
+                                         (or
+                                          (= arg "gate") ;; Always send gate
+                                          (not= value
+                                                (get synth-args arg)))))
+                               cat)   
+                              (partition 2 %)))]
+    (sc-new-synth action)))
+
 (defn setup []
+  (conn/add-destination! "localhost" 57110 "sc" action->s-new)
+
+  (conn/add-destination! "localhost" 57120 "sc-lang" action->s-new)
+
   (samples/reset-drum-kits)
   (register-callbacks)
   (reset-audio-buses)
   (reset-sc-synth-monitor)
-  ;(listen-for-notifications)
+  
+  (clip-config/register-callback
+   clip-config/clip-arg-set-event
+   :default-args
+   (fn [clip arg _old value]
+     (if-let [args (get-in default-args [arg value])]
+       (update clip :args merge args)
+       clip)))
+                                        ;(listen-for-notifications)
   )
 

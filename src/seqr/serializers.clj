@@ -18,11 +18,6 @@
         (byte-array []))
       (throw (Exception. "No serializer found")))))
 
-(def sc-new-synth
-  (osc/builder "/s_new ?synth ?node-id:-1 ?add-action:0 ?target:0 ...?args"))
-
-(register-serializer "sc" sc-new-synth)
-
 (defn midi-serializer [{:keys [args] :as action}]
   (let [args (reduce #(assoc %1 (first %2) (second %2)) {} (partition 2 args))
         msg (ShortMessage.)]

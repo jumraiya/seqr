@@ -30,13 +30,12 @@
     (catch Exception e
       (prn "Error saving sketch" e))))
 
-(defn- save-load-sketch [editor state load? ui-reset-fn]
-  (let [chooser (JFileChooser.)
-        res (if load?
-              (.showOpenDialog chooser editor)
-              (.showSaveDialog chooser editor))]
+(defn- save-load-sketch [file-chooser editor state load? ui-reset-fn]
+  (let [res (if load?
+              (.showOpenDialog file-chooser editor)
+              (.showSaveDialog file-chooser editor))]
     (when (= res JFileChooser/APPROVE_OPTION)
-      (let [path (->> chooser
+      (let [path (->> file-chooser
                       (.getSelectedFile)
                       (.getAbsolutePath))]
         (if load?
@@ -54,16 +53,17 @@
         file-menu (doto (JMenu. "File")
                     (.add new)
                     (.add open)
-                    (.add save-as))]
+                    (.add save-as))
+        file-chooser (JFileChooser.)]
     (utils/add-action-listener
         new
       (ui-reset-fn)
       (new-sketch state))
     (utils/add-action-listener
         open
-        (save-load-sketch (.getTopLevelAncestor open) state true ui-reset-fn))
+        (save-load-sketch file-chooser (.getTopLevelAncestor open) state true ui-reset-fn))
     (utils/add-action-listener
         save-as
-        (save-load-sketch (.getTopLevelAncestor open) state false ui-reset-fn))
+        (save-load-sketch file-chooser (.getTopLevelAncestor open) state false ui-reset-fn))
     (doto (JMenuBar.)
       (.add file-menu))))

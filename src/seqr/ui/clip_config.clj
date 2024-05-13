@@ -25,6 +25,10 @@
 (def ^:private default-props-set
   (set default-properties))
 
+(defonce ^:private callbacks (atom {}))
+
+(def clip-arg-set-event ::clip-arg-set)
+
 #_(defn- set-column-sizes [clip-atom table]
     (let [grid-map (build-grid-map @clip-atom (.getWidth table))]
       (doseq [c (range (.getColumnCount table))]
@@ -82,9 +86,10 @@
         new-clip (if old-val
                    (postwalk
                     #(cond
-                       (and (map? %)
-                            (contains? % :action)
-                            (= old-val (get % (name prop)))) (dissoc % (name prop))
+                       ;; (and (map? %)
+                       ;;      (contains? % :action)
+                       ;;      (= old-val (get % (name prop))))
+                       ;; (dissoc % (name prop))
                        (and
                         (coll? %)
                         (some (fn [a] (when (and (map? a) (contains? a :action)) true)) %)
@@ -94,11 +99,11 @@
                        :else %)
                     new-clip)
                    new-clip)
-        new-clip (cond-> new-clip
-                   (and (= p [:dest]) (contains? (:dest-default-args @ui-state) v))
-                   (update :args merge (get (:dest-default-args @ui-state) v))
-                   (and (= p [:interpreter]) (contains? (:interpreter-default-args @ui-state) v))
-                   (update :args merge (get (:interpreter-default-args @ui-state) v)))]
+        new-clip (reduce
+                  (fn [cl [_ callback]]
+                    (callback cl p old-val v))
+                  new-clip
+                  (get @callbacks clip-arg-set-event))]
     (when prop
       (save-fn ui-state new-clip)
       (.repaint table))))
@@ -241,3 +246,5 @@
     (set-table-height scroll-pane table)
     scroll-pane))
 
+(defn register-callback [event key f]
+  (swap! callbacks assoc-in [event key] f))
