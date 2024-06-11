@@ -28,7 +28,6 @@
           (catch Exception e
             (prn e)))))))
 
-
 (defn list-devices []
   (doseq [d (MidiSystem/getMidiDeviceInfo)]
     (prn (.toString d)
@@ -77,6 +76,25 @@
             false)))
       (prn (str "Could not find device " device-name)))))
 
+(defn set-midi-receiver
+  [device-name receiver]
+  (if-let [device (find-device device-name)]
+    (do
+      (when (not (.isOpen device))
+        (.open device))
+      (.setReceiver (.getTransmitter device) receiver))
+    (prn (str "Could not find device " device-name))))
+
+(defn remove-midi-receiver
+  [device-name]
+  (if-let [device (find-device device-name)]
+    (do
+      (when (not (.isOpen device))
+        (.open device))
+      (doseq [t (.getTransmitters device)]
+        (.setReceiver t nil)))
+    (prn (str "Could not find device " device-name))))
+
 (defn start-recording
   ([]
    (toggle-recording true))
@@ -106,3 +124,4 @@
 (defn get-last-message [type]
   (some #(when (= (.getCommand (second %)) type) (second %))
         (reverse @midi-buffer)))
+

@@ -18,6 +18,8 @@
 
 (defonce midi-input-list (atom nil))
 
+(defonce midi-clock-input-list (atom nil))
+
 (defn- mk-listener []
   (let [local-counter (volatile! 0)]
     (proxy [Thread] ["counter-listener"]
@@ -74,8 +76,15 @@
         midi-label (JLabel. "Input MIDI Device")
         midi-inputs (reset! midi-input-list (doto (JComboBox. (mk-midi-device-list-model))
                                               (.setEditable false)))
+        midi-clock-label (JLabel. "Clock MIDI Device")
+        midi-clock-inputs (reset! midi-clock-input-list
+                                  (doto
+                                      (JComboBox.
+                                       (mk-midi-device-list-model))
+                                    (.setEditable false)))
         reload-midi-devices-btn (JButton. "Refresh")
         toggle-midi (JButton. "Record MIDI")
+        toggle-midi-clock (JButton. "Use MIDI Clock")
         mk-clip (JButton. "Make Clip from MIDI")]
     (utils/add-action-listener play-btn
       (try
@@ -94,8 +103,24 @@
             (.setText toggle-midi "Stop Recording")
             (.setText toggle-midi "Record MIDI")))
         (catch Exception e)))
+    (utils/add-action-listener toggle-midi-clock
+      (try
+        (let [using-clock? (sequencer/using-midi-clock?)
+              device-name (.getSelectedItem midi-clock-inputs)]
+          (if using-clock?
+            (do
+              (midi/remove-midi-receiver device-name)
+              (sequencer/use-midi-clock false)
+              (.setText toggle-midi-clock "Use MIDI Clock"))
+            (do
+              (midi/set-midi-receiver device-name (sequencer/midi-clock-receiver))
+              (sequencer/use-midi-clock true)
+              (.setText toggle-midi-clock "Stop receiving clock"))))
+        (catch Exception e
+          (prn e))))
     (utils/add-action-listener reload-midi-devices-btn
-      (.repaint midi-inputs))
+      (.repaint midi-inputs)
+      (.repaint midi-clock-inputs))
     (utils/add-action-listener mk-clip
       (editor/set-clip
        (clip/build-from-midi (sequencer/get-bpm) (editor/get-cur-clip))))
@@ -116,6 +141,9 @@
       (.add midi-inputs)
       (.add reload-midi-devices-btn)
       (.add toggle-midi)
+      (.add midi-clock-label)
+      (.add midi-clock-inputs)
+      (.add toggle-midi-clock)
       (.add mk-clip))))
 
 (midi/register-listener :recv-msg :play-midi play-midi)

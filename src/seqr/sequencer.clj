@@ -1,6 +1,5 @@
 (ns seqr.sequencer
   (:require
-   [seqr.clip :as clip]
    [seqr.helper :as helper]
    [seqr.connections :as conn]
    [seqr.interpreters :as in]
@@ -8,7 +7,8 @@
   (:import
    (java.util Arrays)
    (java.util.concurrent.locks LockSupport)
-   (java.nio ByteBuffer)))
+   (java.nio ByteBuffer)
+   (javax.sound.midi MidiMessage Receiver)))
 
 (def MAX-CLIPS 10)
 
@@ -20,6 +20,8 @@
   (make-array Byte/TYPE MAX-CLIPS MAX-CLIP-ACTIONS 2 MAX-ACTION-LEN))
 
 (defonce counter (volatile! 0))
+
+(defonce midi-clock-pulses (volatile! 0))
 
 (defonce ^:private callbacks (atom {}))
 
@@ -313,12 +315,42 @@
         (doseq [f (vals (get @callbacks clip-deleted))]
           (f clip)))))
 
+(defn midi-clock-receiver []
+  (proxy [Receiver] []
+    (close []
+      )
+    (send [^MidiMessage m _]
+      (try
+                                        ;(prn (.getStatus m) (.getCommand m) (.getData1 m) (.getData2 m))
+        (condp = (.getStatus m)
+          250 (do
+                (vreset! counter (or (:start-counter @state) 1))
+                (vreset! midi-clock-pulses 0))
+          252 (do
+                (vreset! counter (or (:start-counter @state) 1))
+                (vreset! midi-clock-pulses 0))
+          248 (if (= 23 @midi-clock-pulses)
+                (do
+                  (vreset! midi-clock-pulses 0)
+                  (vswap! counter inc))
+                (vswap! midi-clock-pulses inc))
+          nil)
+        (catch Exception e
+          (prn e))))))
+
+(defn use-midi-clock [status]
+  (send state assoc :use-midi-clock status))
+
+(defn using-midi-clock? []
+  (:use-midi-clock @state false))
+
 (defn- mk-counter-thread []
   (proxy [Thread] []
     (run []
       (while (not (:terminate? @state))
         (try
-          (if (:running? @state)
+          (if (and (:running? @state)
+                   (not (using-midi-clock?)))
             (do
               (if (< @counter (or (:end-counter @state) (:size @state)))
                 (vswap! counter inc)
@@ -328,7 +360,7 @@
               (println "Stopping sequencer")
               (LockSupport/park this)))
           (catch Exception e
-            ;(prn "Exception in counter" e)
+                                        ;(prn "Exception in counter" e)
             ))))))
 
 (defn start []
@@ -357,9 +389,9 @@
                           (when t
                             (= (resume t) :terminated)))]
         (when make-new?
-            (send sender-threads
-                  assoc-in [idx :thread] (doto (sender-thread idx counter)
-                                           (.start))))))
+          (send sender-threads
+                assoc-in [idx :thread] (doto (sender-thread idx counter)
+                                         (.start))))))
     (doseq [l (vals (get @callbacks sequencer-started))]
       (l))))
 
