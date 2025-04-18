@@ -64,7 +64,7 @@
           (.open device))
         (if start?
           (do
-            (send midi-buffer (fn [buf] []))
+            (send midi-buffer (fn [_] []))
             (.setReceiver (.getTransmitter device) record-message)
             (reset! is-recording? true)
             true)

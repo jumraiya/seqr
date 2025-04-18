@@ -375,7 +375,7 @@
 (defn setup []
   (conn/add-destination! "localhost" 57110 "sc" action->s-new)
 
-  (conn/add-destination! "localhost" 57120 "sc-lang" action->s-new)
+  (conn/add-destination! "localhost" 57121 "sc-lang" action->s-new)
 
   (samples/reset-drum-kits)
   (register-callbacks)
